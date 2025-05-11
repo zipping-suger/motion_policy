@@ -1,0 +1,21 @@
+training_model_parameters:
+    pc_latent_dim: 256
+    bc_loss_weight: 1
+    collision_loss_weight: 0
+
+data_module_parameters:
+  data_dir: "./pretrain_data"
+  trajectory_key: 'global_solutions' # Could also use 'global_solutions' for the global expert
+  num_obstacle_points: 4096
+  random_scale: 0
+
+shared_parameters:
+    num_robot_points: 2048
+
+checkpoint_interval: 1
+validation_interval: 6000
+accelerator: "gpu"
+gpu_num: 1  # If > 1, PyTorch Lightning will automatically use DDP for training
+batch_size: 32
+save_checkpoint_dir: "./checkpoints"
+experiment_name: reach_training_pcn

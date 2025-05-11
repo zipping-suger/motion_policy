@@ -1,0 +1,12 @@
+.venv/
+.vscode/
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+pretrain_data/
+
+checkpoints*
+lightning_logs/
+wandb/
