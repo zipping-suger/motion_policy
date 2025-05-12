@@ -20,8 +20,8 @@ class PolicyNet(pl.LightningModule):
         Constructs the model
         """
         super().__init__()
-        self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
-        # self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
+        # self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
+        self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
         
         self.config_encoder = nn.Sequential(
             nn.Linear(7, 32),
@@ -48,16 +48,13 @@ class PolicyNet(pl.LightningModule):
         )
         
         self.decoder = nn.Sequential(
-            nn.Linear(pc_latent_dim + 64 + 64, 256),
+            nn.Linear(pc_latent_dim + 64 + 64, 512),
+            nn.LeakyReLU(),
+            nn.Linear(512, 256),
             nn.LeakyReLU(),
             nn.Linear(256, 128),
             nn.LeakyReLU(),
-            nn.Linear(128, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64,32),
-            nn.LeakyReLU(),
-            nn.Linear(32, 1),
-            nn.Sigmoid(),  # Sigmoid activation for binary classification
+            nn.Linear(128,7)
         )
 
     def configure_optimizers(self):
@@ -138,9 +135,10 @@ class TrainingPolicyNet(PolicyNet):
                                    first element of each batch in the list would
                                    be a single trajectory.
         """
-        xyz, q = (
+        xyz, q, target = (
             batch["xyz"],
             batch["configuration"],
+            batch["target_configuration"],
         )
         
         # This block is to adapt for the case where we only want to roll out a
@@ -156,7 +154,7 @@ class TrainingPolicyNet(PolicyNet):
             trajectory = [q]
 
         for i in range(rollout_length):
-            # q = torch.clamp(q + self(xyz, q, target), min=-1, max=1)
+            q = torch.clamp(q + self(xyz, q, target), min=-1, max=1)
             q_unnorm = unnormalize_franka_joints(q)
             assert isinstance(q_unnorm, torch.Tensor)
             q_unnorm = q_unnorm.type_as(q)
@@ -213,14 +211,10 @@ class TrainingPolicyNet(PolicyNet):
             batch["supervision"],
         )
         
+        
         bc_loss = self.loss_fun(y_hat, supervision)
         if self.fk_sampler is None:
-            self.fk_sampler = FrankaSampler(
-                y_hat.device,
-                num_fixed_points=self.num_points,
-                use_cache=True,
-                with_base_link=False,  # Remove base link because this isn't controllable anyway
-            )
+            self.fk_sampler = FrankaSampler(self.device, use_cache=True)
         input_pc = self.fk_sampler.sample(
             utils.unnormalize_franka_joints(y_hat), self.num_robot_points
         )
