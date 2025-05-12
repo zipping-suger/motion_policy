@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Hardcoded paths and arguments
-CONTAINER_IMAGE="/cluster/scratch/yixili/motion_policy.sif"  # Added .sif extension
+CONTAINER_IMAGE="/cluster/scratch/yixili/cn_env.sif"  # Added .sif extension
 PIPELINE_DIR="/cluster/home/yixili/motion_policy"
 
 echo "Starting Singularity container: $CONTAINER_IMAGE"
@@ -22,7 +22,6 @@ singularity exec \
   --env PYTHONPATH="/motion_policy:\${PYTHONPATH:-}" \
   --env NVIDIA_DRIVER_CAPABILITIES=all \
   --env ACCEPT_EULA=Y \
-  --env WANDB_API_KEY \
   "${CONTAINER_IMAGE}" \
   python3 -u /motion_policy/run_training.py configs/train_cfg.yaml
 

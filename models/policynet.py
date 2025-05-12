@@ -3,7 +3,7 @@ torch.set_float32_matmul_precision('medium')
 from torch import nn
 import pytorch_lightning as pl
 from models.pcn import PCNEncoder
-from models.ptv3 import PointTransformerNet
+#from models.ptv3 import PointTransformerNet
 from typing import List, Tuple, Sequence, Dict, Callable
 import utils
 from utils import unnormalize_franka_joints, collision_loss
@@ -15,13 +15,13 @@ class PolicyNet(pl.LightningModule):
     The architecture laid out here is the default architecture laid out in the
     Motion Policy Networks paper (Fishman, et. al, 2022).
     """
-    def __init__(self, pc_latent_dim=256): 
+    def __init__(self, pc_latent_dim=2048): 
         """
         Constructs the model
         """
         super().__init__()
-        # self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
-        self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
+        self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
+        # self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
         
         self.config_encoder = nn.Sequential(
             nn.Linear(7, 32),
