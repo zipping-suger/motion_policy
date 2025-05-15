@@ -6,7 +6,7 @@ from models.pcn import PCNEncoder
 #from models.ptv3 import PointTransformerNet
 from typing import List, Tuple, Sequence, Dict, Callable
 import utils
-from utils import unnormalize_franka_joints, collision_loss
+from utils import collision_loss
 from geometry import TorchCuboids, TorchCylinders
 from robofin.pointcloud.torch import FrankaSampler, FrankaCollisionSampler
 
@@ -65,18 +65,6 @@ class PolicyNet(pl.LightningModule):
         return optimizer
 
     def forward(self, xyz: torch.Tensor, q: torch.Tensor, target:torch.Tensor) -> torch.Tensor:  # type: ignore[override]
-        """
-        Passes data through the network to produce an output
-
-        :param xyz torch.Tensor: Tensor representing the point cloud. Should
-                                      have dimensions of [B x N x 4] where B is the batch
-                                      size, N is the number of points and 4 is because there
-                                      are three geometric dimensions and a segmentation mask
-        :param q torch.Tensor: The current robot configuration normalized to be between
-                                    -1 and 1, according to each joint's range of motion
-        :rtype torch.Tensor: The displacement to be applied to the current configuration to get
-                     the position at the next step (still in normalized space)
-        """
         pc_encoding = self.point_cloud_encoder(xyz)
         config_encoding = self.config_encoder(q)
         target_encoding = self.target_encoder(target)
@@ -114,27 +102,7 @@ class TrainingPolicyNet(PolicyNet):
         batch: Dict[str, torch.Tensor],
         rollout_length: int,
         sampler: Callable[[torch.Tensor], torch.Tensor],
-        unnormalize: bool = False,
     ) -> List[torch.Tensor]:
-        """
-        Rolls out the policy an arbitrary length by calling it iteratively
-
-        :param batch Dict[str, torch.Tensor]: A data batch coming from the
-                                              data loader--should already be
-                                              on the correct device
-        :param rollout_length int: The number of steps to roll out (not including the start)
-        :param sampler Callable[[torch.Tensor], torch.Tensor]: A function that takes a batch of robot
-                                                               configurations [B x 7] and returns a batch of
-                                                               point clouds samples on the surface of that robot
-        :param unnormalize bool: Whether to return the whole trajectory unnormalized
-                                 (i.e. converted back into joint space)
-        :rtype List[torch.Tensor]: The entire trajectory batch, i.e. a list of
-                                   configuration batches including the starting
-                                   configurations where each element in the list
-                                   corresponds to a timestep. For example, the
-                                   first element of each batch in the list would
-                                   be a single trajectory.
-        """
         xyz, q, target = (
             batch["xyz"],
             batch["configuration"],
@@ -146,24 +114,15 @@ class TrainingPolicyNet(PolicyNet):
         if q.ndim == 1:
             xyz = xyz.unsqueeze(0)
             q = q.unsqueeze(0)
-        if unnormalize:
-            q_unnorm = unnormalize_franka_joints(q)
-            assert isinstance(q_unnorm, torch.Tensor)
-            trajectory = [q_unnorm]
-        else:
-            trajectory = [q]
+
+        trajectory = [q]
 
         for i in range(rollout_length):
-            q = torch.clamp(q + self(xyz, q, target), min=-1, max=1)
-            q_unnorm = unnormalize_franka_joints(q)
-            assert isinstance(q_unnorm, torch.Tensor)
-            q_unnorm = q_unnorm.type_as(q)
-            if unnormalize:
-                trajectory.append(q_unnorm)
-            else:
-                trajectory.append(q)
+            q = q + self(xyz, q, target)
 
-            robot_samples = sampler(q_unnorm).type_as(xyz)
+            trajectory.append(q)
+
+            robot_samples = sampler(q).type_as(xyz)
             # replace the fist num_robot_points points in the point cloud
             # with the robot samples
             xyz[:, : self.num_robot_points, :3] = robot_samples
@@ -190,7 +149,7 @@ class TrainingPolicyNet(PolicyNet):
             batch["target_configuration"],
         )
         
-        y_hat = torch.clamp(q + self(xyz, q, target), min=-1, max=1)
+        delta_q = self(xyz, q, target)
         (
             cuboid_centers,
             cuboid_dims,
@@ -212,27 +171,27 @@ class TrainingPolicyNet(PolicyNet):
         )
         
         
-        bc_loss = self.loss_fun(y_hat, supervision)
-        if self.fk_sampler is None:
-            self.fk_sampler = FrankaSampler(self.device, use_cache=True)
-        input_pc = self.fk_sampler.sample(
-            utils.unnormalize_franka_joints(y_hat), self.num_robot_points
-        )
-        colli_los = collision_loss(
-            input_pc,
-            cuboid_centers,
-            cuboid_dims,
-            cuboid_quats,
-            cylinder_centers,
-            cylinder_radii,
-            cylinder_heights,
-            cylinder_quats,
-        )
+        bc_loss = self.loss_fun(delta_q, supervision)
+        # if self.fk_sampler is None:
+        #     self.fk_sampler = FrankaSampler(self.device, use_cache=True)
+        # input_pc = self.fk_sampler.sample(
+        #     q + delta_q, self.num_robot_points
+        # )
+        # colli_los = collision_loss(
+        #     input_pc,
+        #     cuboid_centers,
+        #     cuboid_dims,
+        #     cuboid_quats,
+        #     cylinder_centers,
+        #     cylinder_radii,
+        #     cylinder_heights,
+        #     cylinder_quats,
+        # )
         self.log("bc_loss", bc_loss)
-        self.log("collision_loss", colli_los)
+        # self.log("collision_loss", colli_los)
         val_loss = (
             self.bc_loss_weight * bc_loss
-            + self.collision_loss_weight * colli_los
+            # + self.collision_loss_weight * colli_los
         )
         self.log("val_loss", val_loss)
         return val_loss
@@ -267,7 +226,7 @@ class TrainingPolicyNet(PolicyNet):
             self.collision_sampler = FrankaCollisionSampler(
                 self.device, with_base_link=False
             )
-        rollout = self.rollout(batch, 54, self.sample, unnormalize=True)
+        rollout = self.rollout(batch, 54, self.sample)
 
         assert self.fk_sampler is not None  # Necessary for mypy to type properly
         

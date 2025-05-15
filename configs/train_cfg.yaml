@@ -4,7 +4,7 @@ training_model_parameters:
     collision_loss_weight: 0
 
 data_module_parameters:
-  data_dir: "./pretrain_data"
+  data_dir: "./pretrain_data/ompl"
   trajectory_key: 'global_solutions' # Could also use 'global_solutions' for the global expert
   num_obstacle_points: 4096
   random_scale: 0
@@ -18,4 +18,4 @@ accelerator: "gpu"
 gpu_num: 1  # If > 1, PyTorch Lightning will automatically use DDP for training
 batch_size: 32
 save_checkpoint_dir: "./checkpoints"
-experiment_name: reach_training_pcn_curobo
+experiment_name: reach_training_pcn_ompl

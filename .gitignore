@@ -10,3 +10,5 @@ pretrain_data/
 checkpoints*
 lightning_logs/
 wandb/
+
+cluster/slurm-*.out

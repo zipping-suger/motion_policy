@@ -176,10 +176,10 @@ class PointCloudBase(Dataset):
                 randomized = torch.minimum(
                     torch.maximum(randomized, limits[:, 0]), limits[:, 1]
                 )
-                item["configuration"] = self.normalize(randomized)
+                item["configuration"] = randomized
                 robot_points = self.fk_sampler.sample(randomized, self.num_robot_points)
             else:
-                item["configuration"] = self.normalize(config_tensor)
+                item["configuration"] = config_tensor
                 robot_points = self.fk_sampler.sample(
                     config_tensor, self.num_robot_points
                 )
@@ -382,10 +382,9 @@ class PointCloudInstanceDataset(PointCloudBase):
         )
 
         with h5py.File(str(self._database), "r") as f:
-            item["supervision"] = self.normalize(
-                torch.as_tensor(
-                    f[self.trajectory_key][trajectory_idx, supervision_timestep, :]
-                )
+            item["supervision"] = torch.as_tensor(
+                f[self.trajectory_key][trajectory_idx, supervision_timestep, :]
+                - f[self.trajectory_key][trajectory_idx, timestep, :]
             ).float()
 
         return item
