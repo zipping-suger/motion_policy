@@ -20,10 +20,10 @@ from geometrout.primitive import Cuboid, Cylinder
 
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
-MAX_ROLLOUT_LENGTH = 50
+MAX_ROLLOUT_LENGTH = 200
 
-model_path = "./checkpoints/tyztp0z2/epoch=46-step=437251.ckpt"
-val_data_path = "./pretrain_data"
+model_path = "./checkpoints/sxp9r1ag/epoch-epoch=49-end.ckpt"
+val_data_path = "./pretrain_data/ompl"
 
 model = PolicyNet.load_from_checkpoint(model_path).cuda()
 model.eval()
@@ -84,6 +84,10 @@ for problem_idx in problems_to_visualize:
     expert_trajectory = get_expert_trajectory(dataset, problem_idx)
     print(f"Expert trajectory length: {expert_trajectory.shape[0]} steps")
     
+    # Target configuration of the expert trajectory
+    target_config = expert_trajectory[-1]
+    print(f"Target configuration of the expert: {target_config}")
+    
     # Move tensors to GPU
     for key in data:
         if isinstance(data[key], torch.Tensor):
@@ -138,27 +142,33 @@ for problem_idx in problems_to_visualize:
         print(f"Target config: {target_config_batched}")
         
         # Unnormalize start config for visualization
-        unnorm_q = unnormalize_franka_joints(q)
-        trajectory.append(unnorm_q.squeeze(0).cpu().numpy())
+        # unnorm_q = unnormalize_franka_joints(q)
+        # trajectory.append(unnorm_q.squeeze(0).cpu().numpy())
+        
+        trajectory.append(q.squeeze(0).cpu().numpy())
         
         for i in range(MAX_ROLLOUT_LENGTH):
             # Forward pass through the model
             delta_q = model(xyz, q, target_config_batched)
-            q = torch.clamp(q + delta_q, min=-1, max=1)
+            q = q + delta_q
             
             # Unnormalize for visualization
-            unnorm_q = unnormalize_franka_joints(q)
-            trajectory.append(unnorm_q.squeeze(0).cpu().numpy())
+            # unnorm_q = unnormalize_franka_joints(q)
+            # trajectory.append(unnorm_q.squeeze(0).cpu().numpy())
+            trajectory.append(q.squeeze(0).cpu().numpy())
             
             # Update point cloud with new robot position
-            robot_points = gpu_fk_sampler.sample(unnorm_q, NUM_ROBOT_POINTS)
+            # robot_points = gpu_fk_sampler.sample(unnorm_q, NUM_ROBOT_POINTS)
+            robot_points = gpu_fk_sampler.sample(q, NUM_ROBOT_POINTS)
             xyz[:, :NUM_ROBOT_POINTS, :3] = robot_points
             
             # Check if we've reached the target
             target_position = data["target_position"].unsqueeze(0)
-            current_position = gpu_fk_sampler.end_effector_pose(unnorm_q)[:, :3, -1]
+            # current_position = gpu_fk_sampler.end_effector_pose(unnorm_q)[:, :3, -1]
+            current_position = gpu_fk_sampler.end_effector_pose(q)[:, :3, -1]
             
             distance_to_target = torch.norm(current_position - target_position, dim=1)
+            # print(f"Step {i+1}: Distance to target: {distance_to_target.item():.4f} m")
             if distance_to_target.item() < 0.05:  # 5cm threshold
                 print(f"Reached target in {i+1} steps!")
                 break
