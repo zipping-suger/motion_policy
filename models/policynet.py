@@ -61,7 +61,7 @@ class PolicyNet(pl.LightningModule):
         """
         A standard method in PyTorch lightning to set the optimizer
         """
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-5)
+        optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
         return optimizer
 
     def forward(self, xyz: torch.Tensor, q: torch.Tensor, target:torch.Tensor) -> torch.Tensor:  # type: ignore[override]
@@ -106,7 +106,8 @@ class TrainingPolicyNet(PolicyNet):
         xyz, q, target = (
             batch["xyz"],
             batch["configuration"],
-            batch["target_configuration"],
+            # batch["target_configuration"],
+            batch["target_pose"],
         )
         
         # This block is to adapt for the case where we only want to roll out a
@@ -146,7 +147,8 @@ class TrainingPolicyNet(PolicyNet):
         xyz, q, target = (
             batch["xyz"],
             batch["configuration"],
-            batch["target_configuration"],
+            # batch["target_configuration"],
+            batch["target_pose"],
         )
         
         delta_q = self(xyz, q, target)

@@ -158,7 +158,7 @@ class PointCloudBase(Dataset):
             )
             item["target_position"] = target_position
             item["target_quaternion"] = target_quaternion
-            item["target_pose"] = torch.cat((target_position, target_quaternion), dim=0)
+            item["target_pose"] = torch.cat((target_position, target_quaternion), dim=0).float()
             item["target_configuration"] = torch.as_tensor(target_config).float()
 
             config = f[self.trajectory_key][trajectory_idx, timestep, :]
