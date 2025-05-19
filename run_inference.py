@@ -22,8 +22,15 @@ NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 MAX_ROLLOUT_LENGTH = 200
 
-model_path = "./checkpoints/sxp9r1ag/epoch-epoch=49-end.ckpt"
-val_data_path = "./pretrain_data/ompl"
+model_path = "./checkpoints/cubby_pcn/epoch-epoch=49-end.ckpt"
+val_data_path = "./pretrain_data/ompl_cubby"
+
+# model_path = "./checkpoints/table_pcn/epoch-epoch=49-end.ckpt"
+# val_data_path = "./pretrain_data/ompl_table"
+
+# model_path = "./checkpoints/table_mdn/epoch-epoch=49-end.ckpt"
+# val_data_path = "./pretrain_data/ompl_table"
+
 
 model = PolicyNet.load_from_checkpoint(model_path).cuda()
 model.eval()
@@ -149,7 +156,12 @@ for problem_idx in problems_to_visualize:
         
         for i in range(MAX_ROLLOUT_LENGTH):
             # Forward pass through the model
-            delta_q = model(xyz, q, target_config_batched)
+            # delta_q = model(xyz, q, target_config_batched)
+            # q = q + delta_q
+            
+            # Sample action from the model (MDN)
+            mu, sigma, pi = model(xyz, q, target_config_batched)
+            delta_q = model.sample_action(mu, sigma, pi)
             q = q + delta_q
             
             # Unnormalize for visualization

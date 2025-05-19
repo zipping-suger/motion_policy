@@ -31,14 +31,21 @@ class PCNEncoder(pl.LightningModule):
         )
         
         # Fully connected layers for global feature processing
+        # self.proj = nn.Sequential(
+        #     nn.Linear(512, 1024),
+        #     nn.GroupNorm(16, 1024),
+        #     nn.LeakyReLU(inplace=True),
+        #     nn.Linear(1024, 2048),
+        #     nn.GroupNorm(16, 2048),
+        #     nn.LeakyReLU(inplace=True),
+        #     nn.Linear(2048, 2048),
+        # )
+        
         self.proj = nn.Sequential(
-            nn.Linear(512, 1024),
-            nn.GroupNorm(16, 1024),
+            nn.Linear(512, pc_latent_dim),
+            nn.GroupNorm(16, pc_latent_dim),
             nn.LeakyReLU(inplace=True),
-            nn.Linear(1024, 2048),
-            nn.GroupNorm(16, 2048),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(2048, 2048),
+            nn.Linear(pc_latent_dim, pc_latent_dim)
         )
 
     def forward(self, xyzf: torch.Tensor) -> torch.Tensor:
