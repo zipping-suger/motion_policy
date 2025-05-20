@@ -3,7 +3,7 @@ torch.set_float32_matmul_precision('medium')
 from torch import nn
 import pytorch_lightning as pl
 from models.pcn import PCNEncoder
-#from models.ptv3 import PointTransformerNet
+from models.ptv3 import PointTransformerNet
 from typing import List, Tuple, Sequence, Dict, Callable
 import utils
 from utils import collision_loss

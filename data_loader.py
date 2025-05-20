@@ -113,7 +113,26 @@ class PointCloudBase(Dataset):
         """
         return utils.normalize_franka_joints(configuration_tensor)
     
-    def _construct_pointcloud(self, robot_points, obstacle_points):
+    # def _construct_pointcloud(self, robot_points, obstacle_points):
+    #     """
+    #     Construct the point cloud with features as shown in the example.
+    #     """
+    #     obstacle_points = torch.as_tensor(obstacle_points[:, :3]).float()
+        
+    #     xyz = torch.cat(
+    #         (
+    #             torch.zeros(self.num_robot_points, 4),
+    #             torch.ones(self.num_obstacle_points, 4),
+    #         ),
+    #         dim=0,
+    #     )
+        
+    #     xyz[:self.num_robot_points, :3] = robot_points.float()
+    #     xyz[self.num_robot_points:self.num_robot_points+self.num_obstacle_points, :3] = obstacle_points
+        
+    #     return xyz
+    
+    def _construct_pointcloud(self, robot_points, robot_target_points, obstacle_points):
         """
         Construct the point cloud with features as shown in the example.
         """
@@ -123,12 +142,14 @@ class PointCloudBase(Dataset):
             (
                 torch.zeros(self.num_robot_points, 4),
                 torch.ones(self.num_obstacle_points, 4),
+                torch.ones(self.num_robot_points, 4) * 2, # Target points
             ),
             dim=0,
         )
         
         xyz[:self.num_robot_points, :3] = robot_points.float()
         xyz[self.num_robot_points:self.num_robot_points+self.num_obstacle_points, :3] = obstacle_points
+        xyz[self.num_robot_points+self.num_obstacle_points:, :3] = robot_target_points.float()
         
         return xyz
 
@@ -163,6 +184,8 @@ class PointCloudBase(Dataset):
 
             config = f[self.trajectory_key][trajectory_idx, timestep, :]
             config_tensor = torch.as_tensor(config).float()
+            
+            target_config_tensor = torch.as_tensor(target_config).float()
 
             if self.train:
                 # Add slight random noise to the joints
@@ -178,10 +201,16 @@ class PointCloudBase(Dataset):
                 )
                 item["configuration"] = randomized
                 robot_points = self.fk_sampler.sample(randomized, self.num_robot_points)
+                robot_target_points = self.fk_sampler.sample(
+                    target_config_tensor, self.num_robot_points
+                )
             else:
                 item["configuration"] = config_tensor
                 robot_points = self.fk_sampler.sample(
                     config_tensor, self.num_robot_points
+                )
+                robot_target_points = self.fk_sampler.sample(
+                    target_config_tensor, self.num_robot_points
                 )
 
             cuboid_dims = f["cuboid_dims"][trajectory_idx, ...]
@@ -258,7 +287,7 @@ class PointCloudBase(Dataset):
             obstacle_points = construct_mixed_point_cloud(
                 cuboids + cylinders, self.num_obstacle_points
             )
-            item["xyz"]=self._construct_pointcloud(robot_points, obstacle_points)
+            item["xyz"]=self._construct_pointcloud(robot_points, robot_target_points, obstacle_points)
         return item
 
 

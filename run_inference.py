@@ -32,7 +32,9 @@ val_data_path = "./pretrain_data/ompl_cubby"
 # val_data_path = "./pretrain_data/ompl_table"
 
 
-model = PolicyNet.load_from_checkpoint(model_path).cuda()
+
+model = PolicyNet().to("cuda:0")
+# model = PolicyNet.load_from_checkpoint(model_path).cuda()
 model.eval()
 
 # Setup samplers
