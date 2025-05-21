@@ -22,19 +22,15 @@ NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 MAX_ROLLOUT_LENGTH = 200
 
-model_path = "./checkpoints/cubby_pcn/epoch-epoch=49-end.ckpt"
-val_data_path = "./pretrain_data/ompl_cubby"
+# model_path = "./checkpoints/table_leak/epoch-epoch=49-end.ckpt"
+# val_data_path = "./pretrain_data/ompl_table_leak"
 
-# model_path = "./checkpoints/table_pcn/epoch-epoch=49-end.ckpt"
-# val_data_path = "./pretrain_data/ompl_table"
-
-# model_path = "./checkpoints/table_mdn/epoch-epoch=49-end.ckpt"
-# val_data_path = "./pretrain_data/ompl_table"
+model_path = "./checkpoints/table_6k/last.ckpt"
+val_data_path = "./pretrain_data/ompl_table"
 
 
-
-model = PolicyNet().to("cuda:0")
-# model = PolicyNet.load_from_checkpoint(model_path).cuda()
+# model = PolicyNet().to("cuda:0")
+model = PolicyNet.load_from_checkpoint(model_path).cuda()
 model.eval()
 
 # Setup samplers
