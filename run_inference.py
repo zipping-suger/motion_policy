@@ -22,11 +22,15 @@ NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 MAX_ROLLOUT_LENGTH = 200
 
-# model_path = "./checkpoints/table_leak/epoch-epoch=49-end.ckpt"
-# val_data_path = "./pretrain_data/ompl_table_leak"
 
-model_path = "./checkpoints/table_6k/last.ckpt"
-val_data_path = "./pretrain_data/ompl_table"
+model_path = "./checkpoints/table_30k/last.ckpt"
+val_data_path = "./pretrain_data/ompl_table_30k"
+
+# model_path = "./checkpoints/table_6k/last.ckpt"
+# val_data_path = "./pretrain_data/ompl_table_6k"
+
+# model_path = "./checkpoints/cubby_6k/last.ckpt"
+# val_data_path = "./pretrain_data/ompl_cubby_6k"
 
 
 # model = PolicyNet().to("cuda:0")
