@@ -19,10 +19,10 @@ import torch_scatter
 from timm.models.layers import DropPath
 from collections import OrderedDict
 
-try:
-    import flash_attn
-except ImportError:
-    flash_attn = None
+# try:
+#     import flash_attn
+# except ImportError:
+#     flash_attn = None
 
 from .serialization import encode
 
@@ -354,7 +354,7 @@ class SerializedAttention(PointModule):
             assert (
                 upcast_softmax is False
             ), "Set upcast_softmax to False when enable Flash Attention"
-            assert flash_attn is not None, "Make sure flash_attn is installed."
+            # assert flash_attn is not None, "Make sure flash_attn is installed."
             self.patch_size = patch_size
             self.attn_drop = attn_drop
         else:
@@ -475,6 +475,7 @@ class SerializedAttention(PointModule):
             attn = self.attn_drop(attn).to(qkv.dtype)
             feat = (attn @ v).transpose(1, 2).reshape(-1, C)
         else:
+            raise NotImplementedError("Flash Attention is not implemented")
             feat = flash_attn.flash_attn_varlen_qkvpacked_func(
                 qkv.half().reshape(-1, 3, H, C // H),
                 cu_seqlens,
