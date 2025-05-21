@@ -119,11 +119,14 @@ class TrainingPolicyNet(PolicyNet):
         trajectory = [q]
 
         for i in range(rollout_length):
-            q = q + self(xyz, q, target)
+            with torch.no_grad():
+                q = q + self(xyz, q, target)
 
             trajectory.append(q)
-
-            robot_samples = sampler(q).type_as(xyz)
+            
+            
+            with torch.no_grad():
+                robot_samples = sampler(q).type_as(xyz)
             # replace the fist num_robot_points points in the point cloud
             # with the robot samples
             xyz[:, : self.num_robot_points, :3] = robot_samples
@@ -272,9 +275,24 @@ class TrainingPolicyNet(PolicyNet):
             has_collision = torch.logical_or(radius_collisions, has_collision)
 
         avg_collision_rate = torch.count_nonzero(has_collision) / B
+        
+        
+        # One step bc loss
+        xyz, q, target = (
+            batch["xyz"],
+            batch["configuration"],
+            batch["target_configuration"],
+            # batch["target_pose"],
+        )
+        
+        delta_q = self(xyz, q, target)
+        bc_val_loss = self.loss_fun(delta_q, batch["supervision"])
+        
+        
         result = {
             "avg_target_error": avg_target_error,
             "avg_collision_rate": avg_collision_rate,
+            "bc_val_loss": bc_val_loss,
         }
         self.validation_step_outputs.append(result)
         return result
@@ -289,4 +307,10 @@ class TrainingPolicyNet(PolicyNet):
             torch.stack([x["avg_collision_rate"] for x in self.validation_step_outputs])
         )
         self.log("avg_collision_rate", avg_collision_rate)
+        
+        bc_val_loss = torch.mean(
+            torch.stack([x["bc_val_loss"] for x in self.validation_step_outputs])
+        )
+        self.log("bc_val_loss", bc_val_loss)
+        
         self.validation_step_outputs.clear()

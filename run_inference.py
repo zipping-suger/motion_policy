@@ -158,13 +158,13 @@ for problem_idx in problems_to_visualize:
         
         for i in range(MAX_ROLLOUT_LENGTH):
             # Forward pass through the model
-            # delta_q = model(xyz, q, target_config_batched)
-            # q = q + delta_q
-            
-            # Sample action from the model (MDN)
-            mu, sigma, pi = model(xyz, q, target_config_batched)
-            delta_q = model.sample_action(mu, sigma, pi)
+            delta_q = model(xyz, q, target_config_batched)
             q = q + delta_q
+            
+            # # Sample action from the model (MDN)
+            # mu, sigma, pi = model(xyz, q, target_config_batched)
+            # delta_q = model.sample_action(mu, sigma, pi)
+            # q = q + delta_q
             
             # Unnormalize for visualization
             # unnorm_q = unnormalize_franka_joints(q)

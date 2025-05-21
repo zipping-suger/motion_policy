@@ -113,26 +113,7 @@ class PointCloudBase(Dataset):
         """
         return utils.normalize_franka_joints(configuration_tensor)
     
-    # def _construct_pointcloud(self, robot_points, obstacle_points):
-    #     """
-    #     Construct the point cloud with features as shown in the example.
-    #     """
-    #     obstacle_points = torch.as_tensor(obstacle_points[:, :3]).float()
-        
-    #     xyz = torch.cat(
-    #         (
-    #             torch.zeros(self.num_robot_points, 4),
-    #             torch.ones(self.num_obstacle_points, 4),
-    #         ),
-    #         dim=0,
-    #     )
-        
-    #     xyz[:self.num_robot_points, :3] = robot_points.float()
-    #     xyz[self.num_robot_points:self.num_robot_points+self.num_obstacle_points, :3] = obstacle_points
-        
-    #     return xyz
-    
-    def _construct_pointcloud(self, robot_points, robot_target_points, obstacle_points):
+    def _construct_pointcloud(self, robot_points, obstacle_points):
         """
         Construct the point cloud with features as shown in the example.
         """
@@ -142,16 +123,35 @@ class PointCloudBase(Dataset):
             (
                 torch.zeros(self.num_robot_points, 4),
                 torch.ones(self.num_obstacle_points, 4),
-                torch.ones(self.num_robot_points, 4) * 2, # Target points
             ),
             dim=0,
         )
         
         xyz[:self.num_robot_points, :3] = robot_points.float()
         xyz[self.num_robot_points:self.num_robot_points+self.num_obstacle_points, :3] = obstacle_points
-        xyz[self.num_robot_points+self.num_obstacle_points:, :3] = robot_target_points.float()
         
         return xyz
+    
+    # def _construct_pointcloud(self, robot_points, robot_target_points, obstacle_points):
+    #     """
+    #     Construct the point cloud with features as shown in the example.
+    #     """
+    #     obstacle_points = torch.as_tensor(obstacle_points[:, :3]).float()
+        
+    #     xyz = torch.cat(
+    #         (
+    #             torch.zeros(self.num_robot_points, 4),
+    #             torch.ones(self.num_obstacle_points, 4),
+    #             torch.ones(self.num_robot_points, 4) * 2, # Target points
+    #         ),
+    #         dim=0,
+    #     )
+        
+    #     xyz[:self.num_robot_points, :3] = robot_points.float()
+    #     xyz[self.num_robot_points:self.num_robot_points+self.num_obstacle_points, :3] = obstacle_points
+    #     xyz[self.num_robot_points+self.num_obstacle_points:, :3] = robot_target_points.float()
+        
+    #     return xyz
 
     def get_inputs(self, trajectory_idx: int, timestep: int) -> Dict[str, torch.Tensor]:
         """
@@ -287,7 +287,8 @@ class PointCloudBase(Dataset):
             obstacle_points = construct_mixed_point_cloud(
                 cuboids + cylinders, self.num_obstacle_points
             )
-            item["xyz"]=self._construct_pointcloud(robot_points, robot_target_points, obstacle_points)
+            item["xyz"] = self._construct_pointcloud(robot_points, obstacle_points)
+            # item["xyz"]=self._construct_pointcloud(robot_points, robot_target_points, obstacle_points)
         return item
 
 
@@ -344,6 +345,16 @@ class PointCloudTrajectoryDataset(PointCloudBase):
         """
         trajectory_idx, timestep = idx, 0
         item = self.get_inputs(trajectory_idx, timestep)
+        
+        
+        # One step bc prediction
+        supervision_timestep = timestep + 1
+        
+        with h5py.File(str(self._database), "r") as f:
+            item["supervision"] = torch.as_tensor(
+                f[self.trajectory_key][trajectory_idx, supervision_timestep, :]
+                - f[self.trajectory_key][trajectory_idx, timestep, :]
+            ).float()
 
         return item
 
@@ -493,6 +504,7 @@ class DataModule(pl.LightningDataModule):
             self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
+            shuffle=True, # shuffle the training data
         )
 
     def val_dataloader(self) -> DataLoader:
