@@ -156,13 +156,13 @@ class TrainingPolicyNet(PolicyNet):
         
         delta_q = self(xyz, q, target)
         (
-            cuboid_centers,
-            cuboid_dims,
-            cuboid_quats,
-            cylinder_centers,
-            cylinder_radii,
-            cylinder_heights,
-            cylinder_quats,
+            # cuboid_centers,
+            # cuboid_dims,
+            # cuboid_quats,
+            # cylinder_centers,
+            # cylinder_radii,
+            # cylinder_heights,
+            # cylinder_quats,
             supervision,
         ) = (
             # batch["cuboid_centers"],
