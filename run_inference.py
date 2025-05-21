@@ -105,6 +105,7 @@ for problem_idx in problems_to_visualize:
     # Extract start configuration and target
     start_config = data["configuration"]  # This is normalized
     target_config = data["target_configuration"]
+    target_pose = data["target_pose"]
     
     # Create point cloud for obstacles
     cuboid_centers = data["cuboid_centers"].cpu().numpy()
@@ -142,6 +143,10 @@ for problem_idx in problems_to_visualize:
         xyz = data["xyz"].unsqueeze(0)
         start_config_batched = start_config.unsqueeze(0)
         target_config_batched = target_config.unsqueeze(0)
+        target_pose_batched = target_pose.unsqueeze(0)
+        
+        # Choose using config or eff-pose as target
+        target_input = target_config_batched
         
         # Generate rollout
         trajectory = []
@@ -158,13 +163,8 @@ for problem_idx in problems_to_visualize:
         
         for i in range(MAX_ROLLOUT_LENGTH):
             # Forward pass through the model
-            delta_q = model(xyz, q, target_config_batched)
+            delta_q = model(xyz, q, target_input)
             q = q + delta_q
-            
-            # # Sample action from the model (MDN)
-            # mu, sigma, pi = model(xyz, q, target_config_batched)
-            # delta_q = model.sample_action(mu, sigma, pi)
-            # q = q + delta_q
             
             # Unnormalize for visualization
             # unnorm_q = unnormalize_franka_joints(q)

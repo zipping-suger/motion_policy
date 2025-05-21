@@ -106,8 +106,8 @@ class TrainingPolicyNet(PolicyNet):
         xyz, q, target = (
             batch["xyz"],
             batch["configuration"],
-            batch["target_configuration"],
-            # batch["target_pose"],
+            # batch["target_configuration"],
+            batch["target_pose"],
         )
         
         # This block is to adapt for the case where we only want to roll out a
@@ -150,8 +150,8 @@ class TrainingPolicyNet(PolicyNet):
         xyz, q, target = (
             batch["xyz"],
             batch["configuration"],
-            batch["target_configuration"],
-            # batch["target_pose"],
+            # batch["target_configuration"],
+            batch["target_pose"],
         )
         
         delta_q = self(xyz, q, target)
@@ -165,13 +165,13 @@ class TrainingPolicyNet(PolicyNet):
             cylinder_quats,
             supervision,
         ) = (
-            batch["cuboid_centers"],
-            batch["cuboid_dims"],
-            batch["cuboid_quats"],
-            batch["cylinder_centers"],
-            batch["cylinder_radii"],
-            batch["cylinder_heights"],
-            batch["cylinder_quats"],
+            # batch["cuboid_centers"],
+            # batch["cuboid_dims"],
+            # batch["cuboid_quats"],
+            # batch["cylinder_centers"],
+            # batch["cylinder_radii"],
+            # batch["cylinder_heights"],
+            # batch["cylinder_quats"],
             batch["supervision"],
         )
         
@@ -281,8 +281,8 @@ class TrainingPolicyNet(PolicyNet):
         xyz, q, target = (
             batch["xyz"],
             batch["configuration"],
-            batch["target_configuration"],
-            # batch["target_pose"],
+            # batch["target_configuration"],
+            batch["target_pose"],
         )
         
         delta_q = self(xyz, q, target)
