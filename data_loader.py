@@ -456,7 +456,8 @@ class DataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.num_robot_points = num_robot_points
         self.num_obstacle_points = num_obstacle_points
-        self.num_workers = os.cpu_count()
+        # self.num_workers = os.cpu_count()
+        self.num_workers = 16 # Manually set to 16 for my laptop and cluster
         self.random_scale = random_scale
 
     def setup(self, stage: Optional[str] = None):
