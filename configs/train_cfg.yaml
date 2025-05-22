@@ -18,4 +18,4 @@ accelerator: "gpu"
 gpu_num: 1  # If > 1, PyTorch Lightning will automatically use DDP for training
 batch_size: 16
 save_checkpoint_dir: "./checkpoints"
-experiment_name: reach_training_pcn_cubby_6k_config_b16
+experiment_name: reach_training_ptv_cubby_6k_config_b16
