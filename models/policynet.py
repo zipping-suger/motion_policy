@@ -19,8 +19,8 @@ class PolicyNet(pl.LightningModule):
         Constructs the model
         """
         super().__init__()
-        # self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
-        self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
+        self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
+        # self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
         
         # NOTE: There is a issue with sponv with fp16 validation
         # Either set the precision to 32 in run_training.py
