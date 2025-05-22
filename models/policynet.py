@@ -1,5 +1,4 @@
 import torch
-torch.set_float32_matmul_precision('medium')
 from torch import nn
 import pytorch_lightning as pl
 from models.pcn import PCNEncoder
@@ -20,8 +19,12 @@ class PolicyNet(pl.LightningModule):
         Constructs the model
         """
         super().__init__()
-        self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
-        # self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
+        # self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
+        self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
+        
+        # NOTE: There is a issue with sponv with fp16 validation
+        # Either set the precision to 32 in run_training.py
+        # or force the precision to 32 in validation_step in policynet.py
         
         self.config_encoder = nn.Sequential(
             nn.Linear(7, 32),
@@ -225,77 +228,80 @@ class TrainingPolicyNet(PolicyNet):
 
         # These are defined here because they need to be set on the correct devices.
         # The easiest way to do this is to do it at call-time
-        if self.fk_sampler is None:
-            self.fk_sampler = FrankaSampler(self.device, use_cache=True)
-        if self.collision_sampler is None:
-            self.collision_sampler = FrankaCollisionSampler(
-                self.device, with_base_link=False
+        
+        with torch.amp.autocast("cuda", enabled=False):  # Force FP32 precision
+        
+            if self.fk_sampler is None:
+                self.fk_sampler = FrankaSampler(self.device, use_cache=True)
+            if self.collision_sampler is None:
+                self.collision_sampler = FrankaCollisionSampler(
+                    self.device, with_base_link=False
+                )
+            rollout = self.rollout(batch, 54, self.sample)
+
+            assert self.fk_sampler is not None  # Necessary for mypy to type properly
+            
+            eff = self.fk_sampler.end_effector_pose(rollout[-1])
+            position_error = torch.linalg.vector_norm(
+                eff[:, :3, -1] - batch["target_position"], dim=1
             )
-        rollout = self.rollout(batch, 54, self.sample)
+            avg_target_error = torch.mean(position_error)
 
-        assert self.fk_sampler is not None  # Necessary for mypy to type properly
-        
-        eff = self.fk_sampler.end_effector_pose(rollout[-1])
-        position_error = torch.linalg.vector_norm(
-            eff[:, :3, -1] - batch["target_position"], dim=1
-        )
-        avg_target_error = torch.mean(position_error)
-
-        cuboids = TorchCuboids(
-            batch["cuboid_centers"],
-            batch["cuboid_dims"],
-            batch["cuboid_quats"],
-        )
-        cylinders = TorchCylinders(
-            batch["cylinder_centers"],
-            batch["cylinder_radii"],
-            batch["cylinder_heights"],
-            batch["cylinder_quats"],
-        )
-
-        B = batch["cuboid_centers"].size(0)
-        rollout = torch.stack(rollout, dim=1)
-        # Here is some Pytorch broadcasting voodoo to calculate whether each
-        # rollout has a collision or not (looking to calculate the collision rate)
-        assert rollout.shape == (B, 55, 7)
-        rollout = rollout.reshape(-1, 7)
-        has_collision = torch.zeros(B, dtype=torch.bool, device=self.device)
-        collision_spheres = self.collision_sampler.compute_spheres(rollout)
-        for radius, spheres in collision_spheres:
-            num_spheres = spheres.shape[-2]
-            sphere_sequence = spheres.reshape((B, -1, num_spheres, 3))
-            sdf_values = torch.minimum(
-                cuboids.sdf_sequence(sphere_sequence),
-                cylinders.sdf_sequence(sphere_sequence),
+            cuboids = TorchCuboids(
+                batch["cuboid_centers"],
+                batch["cuboid_dims"],
+                batch["cuboid_quats"],
             )
-            assert sdf_values.shape == (B, 55, num_spheres)
-            radius_collisions = torch.any(
-                sdf_values.reshape((sdf_values.size(0), -1)) <= radius, dim=-1
+            cylinders = TorchCylinders(
+                batch["cylinder_centers"],
+                batch["cylinder_radii"],
+                batch["cylinder_heights"],
+                batch["cylinder_quats"],
             )
-            has_collision = torch.logical_or(radius_collisions, has_collision)
 
-        avg_collision_rate = torch.count_nonzero(has_collision) / B
-        
-        
-        # One step bc loss
-        xyz, q, target = (
-            batch["xyz"],
-            batch["configuration"],
-            batch["target_configuration"],
-            # batch["target_pose"],
-        )
-        
-        delta_q = self(xyz, q, target)
-        bc_val_loss = self.loss_fun(delta_q, batch["supervision"])
-        
-        
-        result = {
-            "avg_target_error": avg_target_error,
-            "avg_collision_rate": avg_collision_rate,
-            "bc_val_loss": bc_val_loss,
-        }
-        self.validation_step_outputs.append(result)
-        return result
+            B = batch["cuboid_centers"].size(0)
+            rollout = torch.stack(rollout, dim=1)
+            # Here is some Pytorch broadcasting voodoo to calculate whether each
+            # rollout has a collision or not (looking to calculate the collision rate)
+            assert rollout.shape == (B, 55, 7)
+            rollout = rollout.reshape(-1, 7)
+            has_collision = torch.zeros(B, dtype=torch.bool, device=self.device)
+            collision_spheres = self.collision_sampler.compute_spheres(rollout)
+            for radius, spheres in collision_spheres:
+                num_spheres = spheres.shape[-2]
+                sphere_sequence = spheres.reshape((B, -1, num_spheres, 3))
+                sdf_values = torch.minimum(
+                    cuboids.sdf_sequence(sphere_sequence),
+                    cylinders.sdf_sequence(sphere_sequence),
+                )
+                assert sdf_values.shape == (B, 55, num_spheres)
+                radius_collisions = torch.any(
+                    sdf_values.reshape((sdf_values.size(0), -1)) <= radius, dim=-1
+                )
+                has_collision = torch.logical_or(radius_collisions, has_collision)
+
+            avg_collision_rate = torch.count_nonzero(has_collision) / B
+            
+            
+            # One step bc loss
+            xyz, q, target = (
+                batch["xyz"],
+                batch["configuration"],
+                batch["target_configuration"],
+                # batch["target_pose"],
+            )
+            
+            delta_q = self(xyz, q, target)
+            bc_val_loss = self.loss_fun(delta_q, batch["supervision"])
+            
+            
+            result = {
+                "avg_target_error": avg_target_error,
+                "avg_collision_rate": avg_collision_rate,
+                "bc_val_loss": bc_val_loss,
+            }
+            self.validation_step_outputs.append(result)
+            return result
 
     def on_validation_epoch_end(self):
         avg_target_error = torch.mean(

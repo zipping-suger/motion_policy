@@ -11,7 +11,6 @@ from functools import partial
 from addict import Dict
 import math
 import torch
-torch.set_float32_matmul_precision('medium')
 
 import torch.nn as nn
 import spconv.pytorch as spconv
@@ -1040,7 +1039,7 @@ class PointTransformerNet(pl.LightningModule):
             enc_patch_size=(256, 256, 256, 256),
             cls_mode=True,
             order=("z"),  # Using only one serialization order
-            enable_flash=True,
+            enable_flash=False,
             shuffle_orders=False,  # Skip order shuffling for speed
         )
         
@@ -1064,7 +1063,7 @@ class PointTransformerNet(pl.LightningModule):
         
         # Measure time for preparing input
         input_data = prepare_input_for_ptv3(point_cloud)
-
+    
         output = self.pt(input_data)
         
         # Global max pooling using torch_scatter (more efficient)
