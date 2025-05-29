@@ -39,7 +39,7 @@ import random
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Dict, Sequence
 
-from mpinets.data_pipeline.environments.base_environment import (
+from environments.base_environment import (
     TaskOrientedCandidate,
     NeutralCandidate,
     Environment,

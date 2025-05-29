@@ -315,9 +315,6 @@ class PointCloudTrajectoryDataset(PointCloudBase):
         :param num_obstacle_points int: The number of points to sample from the obstacles
         :param dataset_type DatasetType: What type of dataset this is
         """
-        assert (
-            dataset_type != DatasetType.TRAIN
-        ), "This dataset is not meant for training"
         super().__init__(
             directory,
             trajectory_key,
@@ -469,14 +466,23 @@ class DataModule(pl.LightningDataModule):
                                     procedure or if we are doing ad-hoc testing
         """
         if stage == "fit" or stage is None:
-            self.data_train = PointCloudInstanceDataset(
+            # self.data_train = PointCloudInstanceDataset(
+            #     self.data_dir,
+            #     self.trajectory_key,
+            #     self.num_robot_points,
+            #     self.num_obstacle_points,
+            #     dataset_type=DatasetType.TRAIN,
+            #     random_scale=self.random_scale,
+            # )
+            
+            self.data_train = PointCloudTrajectoryDataset(
                 self.data_dir,
                 self.trajectory_key,
                 self.num_robot_points,
                 self.num_obstacle_points,
                 dataset_type=DatasetType.TRAIN,
-                random_scale=self.random_scale,
             )
+            
             self.data_val = PointCloudTrajectoryDataset(
                 self.data_dir,
                 self.trajectory_key,

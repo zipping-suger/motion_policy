@@ -15,7 +15,7 @@ import uuid
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, PROJECT_ROOT)
 from data_loader import DataModule
-from models.policynet import TrainingPolicyNet
+from models.policynet_opt import TrainingPolicyNet
 
 
 def setup_trainer(
@@ -70,13 +70,13 @@ def setup_trainer(
                 dirpath = PROJECT_ROOT / "checkpoints" / experiment_id
             pl.utilities.rank_zero_info(f"Saving checkpoints to {dirpath}")
             every_n_checkpoint = ModelCheckpoint(
-                monitor="val_loss",
+                monitor="train_loss",
                 save_last=True,
                 dirpath=dirpath,
                 train_time_interval=timedelta(minutes=checkpoint_interval),
             )
             epoch_end_checkpoint = ModelCheckpoint(
-                monitor="val_loss",
+                monitor="train_loss",
                 save_last=True,
                 dirpath=dirpath,
                 save_on_train_epoch_end=True,
@@ -91,6 +91,7 @@ def setup_trainer(
         gradient_clip_val=1.0,
         accelerator=accelerator,
         precision=16,
+        # num_sanity_val_steps=0, # Skip validation sanity check
         logger=False if logger is None else logger,
         **args,
     )
@@ -173,7 +174,13 @@ def run():
         **(config["shared_parameters"] or {}),
         **(config["data_module_parameters"] or {}),
     )
-    mdl = TrainingPolicyNet(
+    # mdl = TrainingPolicyNet(
+    #     **(config["shared_parameters"] or {}),
+    #     **(config["training_model_parameters"] or {}),
+    # )
+    model_path = "./checkpoints/table_leak/last.ckpt"
+    mdl = TrainingPolicyNet.load_from_checkpoint(
+        model_path,
         **(config["shared_parameters"] or {}),
         **(config["training_model_parameters"] or {}),
     )
