@@ -1,10 +1,10 @@
 training_model_parameters:
     pc_latent_dim: 2048
-    goal_loss_weight: 10
+    goal_loss_weight: 1
     collision_loss_weight: 1
 
 data_module_parameters:
-  data_dir: "./pretrain_data/ompl_table_leak"
+  data_dir: "./pretrain_data/ompl_cubby_6k"
   trajectory_key: 'global_solutions' # Could also use 'global_solutions' for the global expert
   num_obstacle_points: 4096
   random_scale: 0
@@ -13,9 +13,9 @@ shared_parameters:
     num_robot_points: 2048
 
 checkpoint_interval: 10
-validation_interval: 8
+validation_interval: 30
 accelerator: "gpu"
 gpu_num: 1  # If > 1, PyTorch Lightning will automatically use DDP for training
-batch_size: 64
+batch_size: 128
 save_checkpoint_dir: "./checkpoints"
-experiment_name: reach_training_pcn_table_leak_config_b64_opt
+experiment_name: reach_training_pcn_cubby_6k_config_b64_opt
