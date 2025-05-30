@@ -87,7 +87,7 @@ def setup_trainer(
     trainer = pl.Trainer(
         enable_checkpointing=should_checkpoint,
         callbacks=callbacks,
-        max_epochs=1 if test else 50,
+        max_epochs=1 if test else 100,
         gradient_clip_val=1.0,
         accelerator=accelerator,
         precision=16,
@@ -178,7 +178,7 @@ def run():
     #     **(config["shared_parameters"] or {}),
     #     **(config["training_model_parameters"] or {}),
     # )
-    model_path = "./checkpoints/cubby_6k_b16/last.ckpt"
+    model_path = "./checkpoints/table_6k/last.ckpt"
     mdl = TrainingPolicyNet.load_from_checkpoint(
         model_path,
         **(config["shared_parameters"] or {}),

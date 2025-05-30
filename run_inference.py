@@ -20,10 +20,10 @@ from geometrout.primitive import Cuboid, Cylinder
 
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
-MAX_ROLLOUT_LENGTH = 55
+MAX_ROLLOUT_LENGTH = 100
 
-model_path = "./checkpoints/table_leak/last.ckpt"
-val_data_path = "./pretrain_data/ompl_table_leak"
+model_path = "./checkpoints/cubby_6k_opt/last.ckpt"
+val_data_path = "./pretrain_data/ompl_cubby_6k"
 
 # model_path = "./checkpoints/cubby_22k/last.ckpt"
 # val_data_path = "./pretrain_data/ompl_cubby_22k"
