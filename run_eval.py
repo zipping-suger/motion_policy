@@ -51,6 +51,7 @@ def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
         xyz = data["xyz"].unsqueeze(0)
         q = data["configuration"].unsqueeze(0)
         target = data["target_configuration"].unsqueeze(0)
+        # target = data["target_pose"].unsqueeze(0)  # Use target pose instead of configuration
         target_position = data["target_position"].unsqueeze(0)
 
         # Perform rollout

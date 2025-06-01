@@ -178,7 +178,7 @@ def run():
     #     **(config["shared_parameters"] or {}),
     #     **(config["training_model_parameters"] or {}),
     # )
-    model_path = "./checkpoints/table_6k/last.ckpt"
+    model_path = "./checkpoints/table_30k/last.ckpt"
     mdl = TrainingPolicyNet.load_from_checkpoint(
         model_path,
         **(config["shared_parameters"] or {}),
