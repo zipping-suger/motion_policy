@@ -16,27 +16,19 @@ from models.policynet import PolicyNet
 from utils import normalize_franka_joints, unnormalize_franka_joints
 from data_loader import PointCloudTrajectoryDataset, DatasetType
 from geometry import construct_mixed_point_cloud
-from geometrout.primitive import Cuboid, Cylinder
+from geometrout.primitive import Cuboid, Cylinder, Sphere
+from robofin.pointcloud.torch import FrankaCollisionSampler
+from geometry import TorchCuboids, TorchCylinders
 
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 MAX_ROLLOUT_LENGTH = 100
+# Set this flag to True to always show expert trajectory, False to skip
+SHOW_EXPERT_TRAJ = False
+NUM_DMEO = 10 
 
-model_path = "./checkpoints/cubby_6k_opt/last.ckpt"
-val_data_path = "./pretrain_data/ompl_cubby_6k"
-
-# model_path = "./checkpoints/cubby_22k/last.ckpt"
-# val_data_path = "./pretrain_data/ompl_cubby_22k"
-
-# model_path = "./checkpoints/table_30k/last.ckpt"
-# val_data_path = "./pretrain_data/ompl_table_30k"
-
-# model_path = "./checkpoints/table_6k/last.ckpt"
-# val_data_path = "./pretrain_data/ompl_table_6k"
-
-# model_path = "./checkpoints/cubby_6k/last.ckpt"
-# val_data_path = "./pretrain_data/ompl_cubby_6k"
-
+model_path = "./checkpoints/table_30k_opt/last.ckpt"
+val_data_path = "./pretrain_data/ompl_table_30k"
 
 # model = PolicyNet().to("cuda:0")
 model = PolicyNet.load_from_checkpoint(model_path).cuda()
@@ -45,6 +37,7 @@ model.eval()
 # Setup samplers
 cpu_fk_sampler = FrankaSampler("cpu", use_cache=True)
 gpu_fk_sampler = FrankaSampler("cuda:0", use_cache=True)
+collision_sampler = FrankaCollisionSampler("cuda:0", with_base_link=False)
 
 # Setup simulation
 sim = BulletController(hz=12, substeps=20, gui=True)
@@ -85,7 +78,7 @@ def get_expert_trajectory(dataset, idx):
         return trajectory
 
 # Select how many problems to visualize
-num_problems = min(10, len(dataset))
+num_problems = min(NUM_DMEO, len(dataset))
 problems_to_visualize = range(num_problems)
 
 for problem_idx in problems_to_visualize:
@@ -194,9 +187,18 @@ for problem_idx in problems_to_visualize:
 
     print(f"Generated trajectory with {len(trajectory)} steps")
     
+    # Load Obstacles in the simulation
+    sim.load_primitives(cuboids + cylinders, color=[0.6, 0.6, 0.6, 1], # gray color for obstacles
+                        visual_only=True)
+    
     # Visualize obstacle point cloud in meshcat
     obstacle_points = construct_mixed_point_cloud(cuboids + cylinders, NUM_OBSTACLE_POINTS)
     obstacle_pc = obstacle_points[:, :3]  # Extract XYZ
+    
+    # Visualize target position with a small red sphere 
+    target_position = data["target_position"].cpu().numpy()
+    target_marker = Sphere(center=target_position, radius=0.05)
+    sim.load_sphere(target_marker, color=[1, 0, 0, 1], visual_only=True)
     
     # Create color array for points (green for obstacles)
     point_cloud_colors = np.zeros((3, obstacle_pc.shape[0]))
@@ -230,7 +232,8 @@ for problem_idx in problems_to_visualize:
     print(f"Expert final position error: {np.linalg.norm(expert_final_ee - target_position):.4f} m")
     
     # Ask user if they want to see expert trajectory first
-    view_expert = input("View expert trajectory first? (y/n): ").strip().lower() == 'y'
+    # view_expert = input("View expert trajectory first? (y/n): ").strip().lower() == 'y'
+    view_expert = SHOW_EXPERT_TRAJ
     
     if view_expert:
         print("Executing expert trajectory...")
@@ -246,7 +249,7 @@ for problem_idx in problems_to_visualize:
             # Update meshcat visualization
             for idx, (k, v) in enumerate(urdf.visual_trimesh_fk(sim_config[:8]).items()):
                 viz[f"robot/{idx}"].set_transform(v)
-            time.sleep(0.08)
+            time.sleep(0.05)
         
         # Reset robot to start configuration for policy trajectory
         print("Resetting to start configuration...")
@@ -254,7 +257,7 @@ for problem_idx in problems_to_visualize:
         time.sleep(1.0)  # Give time to visualize initial state
         
         # Ask user if they want to continue to policy trajectory
-        input("Press Enter to continue to policy trajectory...")
+        # input("Press Enter to continue to policy trajectory...")
     
     # Initialize robot to start configuration
     franka.marionette(trajectory[0])
@@ -270,18 +273,44 @@ for problem_idx in problems_to_visualize:
         # Update meshcat visualization
         for idx, (k, v) in enumerate(urdf.visual_trimesh_fk(sim_config[:8]).items()):
             viz[f"robot/{idx}"].set_transform(v)
-        time.sleep(0.08)
+        time.sleep(0.05)
     
     # Get final position of policy trajectory and calculate error
     policy_final_config = trajectory[-1]
     policy_final_ee = FrankaRobot.fk(policy_final_config).xyz
     print(f"Policy final position error: {np.linalg.norm(policy_final_ee - target_position):.4f} m")
     
-    # # Compare trajectory smoothness (joint movement)
-    # expert_joint_movement = np.abs(np.diff(expert_trajectory, axis=0)).sum()
-    # policy_joint_movement = np.abs(np.diff(np.array(trajectory), axis=0)).sum()
-    # print(f"Expert total joint movement: {expert_joint_movement:.4f} radians")
-    # print(f"Policy total joint movement: {policy_joint_movement:.4f} radians")
+    # --- Collision checking for policy trajectory ---
+    traj_tensor = torch.tensor(np.array(trajectory), dtype=torch.float32, device="cuda:0").unsqueeze(0)  # (1, T, 7)
+    traj_flat = traj_tensor.reshape(-1, 7)  # (T, 7)
+
+    cuboids_torch = TorchCuboids(
+        data["cuboid_centers"].unsqueeze(0),
+        data["cuboid_dims"].unsqueeze(0),
+        data["cuboid_quats"].unsqueeze(0)
+    )
+    cylinders_torch = TorchCylinders(
+        data["cylinder_centers"].unsqueeze(0),
+        data["cylinder_radii"].unsqueeze(0),
+        data["cylinder_heights"].unsqueeze(0),
+        data["cylinder_quats"].unsqueeze(0)
+    )
+
+    collision_spheres = collision_sampler.compute_spheres(traj_flat)
+    has_collision = False
+
+    for radius, spheres in collision_spheres:
+        num_spheres = spheres.size(-2)
+        spheres_reshaped = spheres.view(1, -1, num_spheres, 3)  # (1, T, S, 3)
+        sdf_cuboids = cuboids_torch.sdf_sequence(spheres_reshaped)
+        sdf_cylinders = cylinders_torch.sdf_sequence(spheres_reshaped)
+        sdf_values = torch.minimum(sdf_cuboids, sdf_cylinders)
+        collision_mask = sdf_values <= radius
+        if torch.any(collision_mask):
+            has_collision = True
+            break
+
+    print(f"Policy trajectory collision: {'YES' if has_collision else 'NO'}")
     
     # Extra time to view final pose
     for _ in range(20):
@@ -289,10 +318,10 @@ for problem_idx in problems_to_visualize:
         sim_config, _ = franka.get_joint_states()
         for idx, (k, v) in enumerate(urdf.visual_trimesh_fk(sim_config[:8]).items()):
             viz[f"robot/{idx}"].set_transform(v)
-        time.sleep(0.08)
+        time.sleep(0.05)
     
     # Clear obstacles before next problem
     sim.clear_all_obstacles()
     
     # Wait for user to press Enter to continue
-    input("Press Enter to continue to next problem...")
+    # input("Press Enter to continue to next problem...")

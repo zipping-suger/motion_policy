@@ -146,7 +146,7 @@ def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate PolicyNet on validation data.")
-    parser.add_argument("--model_path", type=str, default="./checkpoints/table_6k/last.ckpt", help="Path to the trained model checkpoint.")
+    parser.add_argument("--model_path", type=str, default="./checkpoints/table_30k_opt/last.ckpt", help="Path to the trained model checkpoint.")
     parser.add_argument("--val_data_path", type=str, default="./pretrain_data/ompl_table_30k", help="Path to the validation dataset directory.")
     args = parser.parse_args()
     run_eval(args.model_path, args.val_data_path)
