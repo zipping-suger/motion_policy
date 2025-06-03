@@ -201,17 +201,17 @@ class PointCloudBase(Dataset):
                 )
                 item["configuration"] = randomized
                 robot_points = self.fk_sampler.sample(randomized, self.num_robot_points)
-                robot_target_points = self.fk_sampler.sample(
-                    target_config_tensor, self.num_robot_points
-                )
+                # robot_target_points = self.fk_sampler.sample(
+                #     target_config_tensor, self.num_robot_points
+                # )
             else:
                 item["configuration"] = config_tensor
                 robot_points = self.fk_sampler.sample(
                     config_tensor, self.num_robot_points
                 )
-                robot_target_points = self.fk_sampler.sample(
-                    target_config_tensor, self.num_robot_points
-                )
+                # robot_target_points = self.fk_sampler.sample(
+                #     target_config_tensor, self.num_robot_points
+                # )
 
             cuboid_dims = f["cuboid_dims"][trajectory_idx, ...]
             if cuboid_dims.ndim == 1:
@@ -454,7 +454,7 @@ class DataModule(pl.LightningDataModule):
         self.num_robot_points = num_robot_points
         self.num_obstacle_points = num_obstacle_points
         # self.num_workers = os.cpu_count()
-        self.num_workers = 16 # Manually set to 16 for my laptop and cluster
+        self.num_workers = 32 # Manually set to 16 for my laptop and cluster
         self.random_scale = random_scale
 
     def setup(self, stage: Optional[str] = None):
@@ -466,22 +466,24 @@ class DataModule(pl.LightningDataModule):
                                     procedure or if we are doing ad-hoc testing
         """
         if stage == "fit" or stage is None:
-            # self.data_train = PointCloudInstanceDataset(
-            #     self.data_dir,
-            #     self.trajectory_key,
-            #     self.num_robot_points,
-            #     self.num_obstacle_points,
-            #     dataset_type=DatasetType.TRAIN,
-            #     random_scale=self.random_scale,
-            # )
-            
-            self.data_train = PointCloudTrajectoryDataset(
+            # For Behavioral Cloning, we use the PointCloudTrajectoryDataset
+            self.data_train = PointCloudInstanceDataset(
                 self.data_dir,
                 self.trajectory_key,
                 self.num_robot_points,
                 self.num_obstacle_points,
                 dataset_type=DatasetType.TRAIN,
+                random_scale=self.random_scale,
             )
+            
+            # # For Optimization based finetuning, we use the PointCloudTrajectoryDataset
+            # self.data_train = PointCloudTrajectoryDataset(
+            #     self.data_dir,
+            #     self.trajectory_key,
+            #     self.num_robot_points,
+            #     self.num_obstacle_points,
+            #     dataset_type=DatasetType.TRAIN,
+            # )
             
             self.data_val = PointCloudTrajectoryDataset(
                 self.data_dir,
