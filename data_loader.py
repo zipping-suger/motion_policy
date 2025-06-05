@@ -446,24 +446,24 @@ class DataModule(pl.LightningDataModule):
                                     procedure or if we are doing ad-hoc testing
         """
         if stage == "fit" or stage is None:
-            # For Behavioral Cloning, we use the PointCloudTrajectoryDataset
-            self.data_train = PointCloudInstanceDataset(
-                self.data_dir,
-                self.trajectory_key,
-                self.num_robot_points,
-                self.num_obstacle_points,
-                dataset_type=DatasetType.TRAIN,
-                random_scale=self.random_scale,
-            )
-            
-            # # For Optimization based finetuning, we use the PointCloudTrajectoryDataset
-            # self.data_train = PointCloudTrajectoryDataset(
+            # # For Behavioral Cloning, we use the PointCloudTrajectoryDataset
+            # self.data_train = PointCloudInstanceDataset(
             #     self.data_dir,
             #     self.trajectory_key,
             #     self.num_robot_points,
             #     self.num_obstacle_points,
             #     dataset_type=DatasetType.TRAIN,
+            #     random_scale=self.random_scale,
             # )
+            
+            # For Optimization based finetuning, we use the PointCloudTrajectoryDataset
+            self.data_train = PointCloudTrajectoryDataset(
+                self.data_dir,
+                self.trajectory_key,
+                self.num_robot_points,
+                self.num_obstacle_points,
+                dataset_type=DatasetType.TRAIN,
+            )
             
             self.data_val = PointCloudTrajectoryDataset(
                 self.data_dir,
