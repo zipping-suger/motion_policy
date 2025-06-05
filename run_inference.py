@@ -27,7 +27,8 @@ MAX_ROLLOUT_LENGTH = 100
 SHOW_EXPERT_TRAJ = False
 NUM_DMEO = 10 
 
-model_path = "./checkpoints/table_30k_opt/last.ckpt"
+# model_path = "./checkpoints/table_6k_pose/last.ckpt"
+model_path = "./checkpoints/w754tu3x/epoch-epoch=3-end.ckpt"
 val_data_path = "./pretrain_data/ompl_table_30k"
 
 # model = PolicyNet().to("cuda:0")
@@ -144,7 +145,7 @@ for problem_idx in problems_to_visualize:
         target_pose_batched = target_pose.unsqueeze(0)
         
         # Choose using config or eff-pose as target
-        target_input = target_config_batched
+        target_input = target_pose_batched
         
         # Generate rollout
         trajectory = []

@@ -20,40 +20,30 @@ NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 MAX_ROLLOUT_LENGTH = 100
 
-model_path = "./checkpoints/table_30k_optc/last.ckpt"
-val_data_path = "./pretrain_data/ompl_table_30k"
+model_path = "./checkpoints/w754tu3x/epoch-epoch=3-end.ckpt"
+val_data_path = "./pretrain_data/ompl_table_6k"
 
-def move_target_config_with_key(target_config, key, step=0.05):
-    """
-    Move the target joint configuration with keyboard keys.
-    1-7: Increase joint angle
-    Shift+1-7: Decrease joint angle
-    """
+def move_target_with_key(target_position, key, step=0.02):
     moved = False
-    # Keys 1-7 increase joint angles
-    for i in range(7):
-        if key == ord(str(i + 1)):
-            target_config[i] += step
-            moved = True
-        # Shift+1-7 decrease joint angles (ASCII for '!' is 33, '@' is 64, etc.)
-        elif key == ord('!') + i:
-            target_config[i] -= step
-            moved = True
+    if key == ord('w'):
+        target_position[1] += step
+        moved = True
+    elif key == ord('s'):
+        target_position[1] -= step
+        moved = True
+    elif key == ord('a'):
+        target_position[0] -= step
+        moved = True
+    elif key == ord('d'):
+        target_position[0] += step
+        moved = True
+    elif key == ord('q'):
+        target_position[2] += step
+        moved = True
+    elif key == ord('e'):
+        target_position[2] -= step
+        moved = True
     return moved
-
-def random_ik_with_retries(pose, eff_frame="right_gripper", retries=1000):
-    """
-    Try to solve IK up to `retries` times, return the first solution found.
-    Returns None if no solution is found.
-    """
-    for _ in range(retries):
-        try:
-            solutions = FrankaRobot.random_ik(pose, eff_frame)
-            if solutions and len(solutions) > 0:
-                return solutions[0]
-        except Exception:
-            continue
-    return None
 
 
 model = PolicyNet.load_from_checkpoint(model_path).cuda()
@@ -63,7 +53,8 @@ cpu_fk_sampler = FrankaSampler("cpu", use_cache=True)
 gpu_fk_sampler = FrankaSampler("cuda:0", use_cache=True)
 
 sim = BulletController(hz=12, substeps=20, gui=True)
-franka = sim.load_robot(FrankaRobot, hd=False, collision_free=True)
+franka = sim.load_robot(FrankaRobot)
+gripper = sim.load_robot(FrankaGripper, collision_free=True)
 
 dataset = PointCloudTrajectoryDataset(
     Path(val_data_path), 
@@ -73,7 +64,7 @@ dataset = PointCloudTrajectoryDataset(
     DatasetType.VAL
 )
 
-problem_idx = 0
+problem_idx = 4
 print(f"\n======= Visualizing problem {problem_idx} =======")
 data = dataset[problem_idx]
 for key in data:
@@ -118,7 +109,12 @@ target_pose = FrankaRobot.fk(target_config)
 target_franka.marionette(target_pose)
 target_position = target_pose.xyz
 
-print("Use 1-7 to increase joint angles, Shift+1-7 to decrease. Press SPACE to plan and execute. Press ESC to quit.")
+# Initial target position
+target_position = data["target_position"].cpu().numpy()
+
+print("Use WASD (XY), QE (Z) to move target. Press SPACE to plan and execute. Press ESC to quit.")
+
+print("Use WASD (XY), QE (Z) to move target. Press SPACE to plan and execute. Press ESC to quit.")
 
 # Dummy OpenCV window (required for key input)
 cv2.namedWindow("Control", cv2.WINDOW_NORMAL)
@@ -129,11 +125,12 @@ policy_final_config = None  # To store the final configuration after policy exec
 
 while True:
     key = cv2.waitKey(30) & 0xFF  # Non-blocking key press check
-    moved = move_target_config_with_key(target_config, key)
+    moved = move_target_with_key(target_position, key)
     if moved:
-        target_pose = FrankaRobot.fk(target_config)
-        target_franka.marionette(target_pose)
-        target_position = target_pose.xyz
+        target_xyz = target_position  # (x, y, z)
+        target_quat = data["target_quaternion"].cpu().numpy()
+        target_pose_se3 = SE3(xyz=target_xyz, quaternion=target_quat)
+        target_franka.marionette(target_pose_se3)
 
     sim.step()
     time.sleep(0.03)
@@ -143,8 +140,9 @@ while True:
         break
     elif key == 32:  # SPACE
         print("Planning and executing trajectory...")
-        # Update data with new target configuration
-        data["target_configuration"] = torch.tensor(target_config, dtype=torch.float32).cuda()
+        # Update data with new target position
+        data["target_position"] = torch.tensor(target_position, dtype=torch.float32).cuda()
+        # Optionally update target_pose/target_config if needed
 
         # Plan and execute trajectory
         with torch.no_grad():
@@ -156,10 +154,11 @@ while True:
             
             start_config_batched = start_config.unsqueeze(0)
             
-            start_config_batched = start_config.unsqueeze(0)
-            target_config_tensor = torch.tensor(target_config, dtype=torch.float32).cuda()
-            target_config_batched = target_config_tensor.unsqueeze(0)
-            target_input = target_config_batched
+            # Solve Inverse Kinematics to get target configuration
+            # Construct the desired end-effector pose as an SE3 object
+            target_xyz = torch.tensor(target_position, dtype=torch.float32, device=xyz.device).unsqueeze(0)  # shape (1, 3)
+            target_quat = data["target_quaternion"].unsqueeze(0)  # shape (1, 4)
+            target_input = torch.cat([target_xyz, target_quat], dim=-1)  # shape (1, 7)
 
             trajectory = []
             q = start_config_batched.clone()
@@ -172,7 +171,7 @@ while True:
                 robot_points = gpu_fk_sampler.sample(q, NUM_ROBOT_POINTS)
                 xyz[:, :NUM_ROBOT_POINTS, :3] = robot_points
                 current_position = gpu_fk_sampler.end_effector_pose(q)[:, :3, -1]
-                distance_to_target = torch.norm(current_position - torch.tensor(target_position, device=current_position.device).unsqueeze(0), dim=1)
+                distance_to_target = torch.norm(current_position - data["target_position"].unsqueeze(0), dim=1)
                 if distance_to_target.item() < 0.05:
                     print(f"Reached target in {i+1} steps!")
                     break
@@ -189,8 +188,8 @@ while True:
 
         # Get final position of policy trajectory and calculate error
         policy_final_config = trajectory[-1]
-        policy_final_ee = np.array(FrankaRobot.fk(policy_final_config).xyz)
-        print(f"Policy final position error: {np.linalg.norm(policy_final_ee - np.array(target_position)):.4f} m")
+        policy_final_ee = FrankaRobot.fk(policy_final_config).xyz
+        print(f"Policy final position error: {np.linalg.norm(policy_final_ee - target_position):.4f} m")
 
         # Extra time to view final pose
         for _ in range(10):

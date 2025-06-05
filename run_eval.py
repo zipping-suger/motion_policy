@@ -13,7 +13,7 @@ NUM_OBSTACLE_POINTS = 4096
 MAX_STEPS = 100  
 GOAL_THRESHOLD = 0.05  # 5cm threshold
 
-def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
+def run_eval(model_path: str, val_data_path: str, num_val: int = 10) -> None:
     """Evaluate the model on the validation dataset."""
     # Load model
     model = PolicyNet.load_from_checkpoint(model_path).cuda()
@@ -50,8 +50,8 @@ def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
         # Prepare inputs with batch dimension
         xyz = data["xyz"].unsqueeze(0)
         q = data["configuration"].unsqueeze(0)
-        target = data["target_configuration"].unsqueeze(0)
-        # target = data["target_pose"].unsqueeze(0)  # Use target pose instead of configuration
+        # target = data["target_configuration"].unsqueeze(0)
+        target = data["target_pose"].unsqueeze(0)  # Use target pose instead of configuration
         target_position = data["target_position"].unsqueeze(0)
 
         # Perform rollout
@@ -146,7 +146,7 @@ def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate PolicyNet on validation data.")
-    parser.add_argument("--model_path", type=str, default="./checkpoints/table_30k_opt/last.ckpt", help="Path to the trained model checkpoint.")
-    parser.add_argument("--val_data_path", type=str, default="./pretrain_data/ompl_table_30k", help="Path to the validation dataset directory.")
+    parser.add_argument("--model_path", type=str, default="./checkpoints/table_6k_pose/last.ckpt", help="Path to the trained model checkpoint.")
+    parser.add_argument("--val_data_path", type=str, default="./pretrain_data/ompl_table_6k", help="Path to the validation dataset directory.")
     args = parser.parse_args()
     run_eval(args.model_path, args.val_data_path)

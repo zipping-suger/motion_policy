@@ -127,8 +127,8 @@ class TrainingPolicyNet(PolicyNet):
         xyz, q, target = (
             batch["xyz"],
             batch["configuration"],
-            batch["target_configuration"],
-            # batch["target_pose"],
+            # batch["target_configuration"],
+            batch["target_pose"],
         )
         
         # This block is to adapt for the case where we only want to roll out a
@@ -168,9 +168,10 @@ class TrainingPolicyNet(PolicyNet):
             f"Last configuration shape {last_configuration.shape} does not match "
             f"target configuration shape {target_configuration.shape}"
         )
-        # Compute mean squared error as a scalar
+        
+        # Goal loss in configuration space
         goal_loss = torch.mean((last_configuration - target_configuration) ** 2)
-
+        
         # Collision loss over the entire rollout
         (
             cuboid_centers,
@@ -327,8 +328,8 @@ class TrainingPolicyNet(PolicyNet):
             xyz, q, target = (
                 batch["xyz"],
                 batch["configuration"],
-                batch["target_configuration"],
-                # batch["target_pose"],
+                # batch["target_configuration"],
+                batch["target_pose"],
             )
             
             delta_q = self(xyz, q, target)

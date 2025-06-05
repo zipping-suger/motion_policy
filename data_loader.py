@@ -174,6 +174,7 @@ class PointCloudBase(Dataset):
             target_config = f[self.trajectory_key][trajectory_idx, -1, :]
 
             target_position = torch.as_tensor(target_pose.xyz, dtype=torch.float32)
+            # TODO Need to check the ill-formed quaternions
             target_quaternion = torch.as_tensor(
                 Quaternion(matrix=target_pose.matrix).elements, dtype=torch.float32
             )
