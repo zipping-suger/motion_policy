@@ -132,27 +132,6 @@ class PointCloudBase(Dataset):
         
         return xyz
     
-    # def _construct_pointcloud(self, robot_points, robot_target_points, obstacle_points):
-    #     """
-    #     Construct the point cloud with features as shown in the example.
-    #     """
-    #     obstacle_points = torch.as_tensor(obstacle_points[:, :3]).float()
-        
-    #     xyz = torch.cat(
-    #         (
-    #             torch.zeros(self.num_robot_points, 4),
-    #             torch.ones(self.num_obstacle_points, 4),
-    #             torch.ones(self.num_robot_points, 4) * 2, # Target points
-    #         ),
-    #         dim=0,
-    #     )
-        
-    #     xyz[:self.num_robot_points, :3] = robot_points.float()
-    #     xyz[self.num_robot_points:self.num_robot_points+self.num_obstacle_points, :3] = obstacle_points
-    #     xyz[self.num_robot_points+self.num_obstacle_points:, :3] = robot_target_points.float()
-        
-    #     return xyz
-
     def get_inputs(self, trajectory_idx: int, timestep: int) -> Dict[str, torch.Tensor]:
         """
         Loads all the relevant data and puts it in a dictionary. This includes
@@ -455,7 +434,7 @@ class DataModule(pl.LightningDataModule):
         self.num_robot_points = num_robot_points
         self.num_obstacle_points = num_obstacle_points
         # self.num_workers = os.cpu_count()
-        self.num_workers = 32 # Manually set to 16 for my laptop and cluster
+        self.num_workers = 16 # Manually set to 16 for my laptop and cluster
         self.random_scale = random_scale
 
     def setup(self, stage: Optional[str] = None):

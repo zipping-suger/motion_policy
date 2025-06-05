@@ -13,7 +13,7 @@ NUM_OBSTACLE_POINTS = 4096
 MAX_STEPS = 100  
 GOAL_THRESHOLD = 0.05  # 5cm threshold
 
-def run_eval(model_path: str, val_data_path: str, num_val: int = 10) -> None:
+def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
     """Evaluate the model on the validation dataset."""
     # Load model
     model = PolicyNet.load_from_checkpoint(model_path).cuda()
