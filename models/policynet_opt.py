@@ -115,7 +115,7 @@ class TrainingPolicyNet(PolicyNet):
         self.collision_sampler = None
         self.goal_loss_weight = goal_loss_weight
         self.collision_loss_weight = collision_loss_weight
-        self.loss_fun = nn.MSELoss()
+        self.mse_loss = nn.MSELoss()
         self.validation_step_outputs = []
 
     def rollout(
@@ -169,8 +169,50 @@ class TrainingPolicyNet(PolicyNet):
             f"target configuration shape {target_configuration.shape}"
         )
         
-        # Goal loss in configuration space
-        goal_loss = torch.mean((last_configuration - target_configuration) ** 2)
+        # # Goal loss in configuration space
+        # goal_loss = torch.mean((last_configuration - target_configuration) ** 2)
+        
+        # Goal reaching loss in end-effector space
+        pred_pose = self.fk_sampler.end_effector_pose(last_configuration)  # (B,4,4)
+        target_pose = batch["target_pose"]  # (B,7): [x, y, z, qw, qx, qy, qz]
+
+        # Extract target position and quaternion
+        target_pos = target_pose[:, 0:3]  # (B,3)
+        target_quat = target_pose[:, 3:]  # (B,4) format: [qw, qx, qy, qz]
+
+        # Normalize quaternion and convert to rotation matrix
+        q_norm = torch.norm(target_quat, dim=1, keepdim=True)
+        q_norm = torch.clamp(q_norm, min=1e-12)
+        target_quat = target_quat / q_norm
+        qw, qx, qy, qz = target_quat.unbind(dim=1)  # <- Updated order
+
+        # Compute rotation matrix from quaternion
+        xx, yy, zz = qx * qx, qy * qy, qz * qz
+        xy, xz, yz = qx * qy, qx * qz, qy * qz
+        xw, yw, zw = qx * qw, qy * qw, qz * qw
+
+        R_target = torch.stack((
+            1 - 2 * (yy + zz), 2 * (xy - zw),     2 * (xz + yw),
+            2 * (xy + zw),     1 - 2 * (xx + zz), 2 * (yz - xw),
+            2 * (xz - yw),     2 * (yz + xw),     1 - 2 * (xx + yy)
+        ), dim=1).view(-1, 3, 3)  # (B,3,3)
+
+        # Extract predicted rotation and translation
+        R_pred = pred_pose[:, :3, :3]  # (B,3,3)
+        t_pred = pred_pose[:, :3, 3]   # (B,3)
+
+        # Positional loss (squared Euclidean)
+        position_loss = torch.sum((t_pred - target_pos) ** 2, dim=1)  # (B,)
+
+        # Rotational loss using geodesic distance (in radians)
+        R_diff = torch.bmm(R_pred.transpose(1, 2), R_target)  # (B,3,3)
+        trace = torch.einsum('bii->b', R_diff)  # (B,)
+        trace_clamped = torch.clamp((trace - 1) / 2, min=-1.0, max=1.0)
+        rotation_loss = torch.acos(trace_clamped)  # (B,)
+
+
+        # Combine losses with balancing factor
+        goal_loss = torch.mean(position_loss + 0.1 * rotation_loss) # Follow the rule of thumb, to make them roughly equal in scale
         
         # Collision loss over the entire rollout
         (
@@ -211,8 +253,8 @@ class TrainingPolicyNet(PolicyNet):
             total_colli_loss += colli_loss
 
         train_loss = self.goal_loss_weight * goal_loss + self.collision_loss_weight * total_colli_loss
-        
-        return train_loss, goal_loss, total_colli_loss
+    
+        return train_loss, goal_loss, total_colli_loss, torch.mean(position_loss), torch.mean(rotation_loss)
 
     def training_step(  # type: ignore[override]
         self, batch: Dict[str, torch.Tensor], batch_idx: int
@@ -236,13 +278,15 @@ class TrainingPolicyNet(PolicyNet):
             )
         rollout = self.rollout(batch, ROLLOUT_LENGTH, self.sample)
         
-        train_loss, goal_loss, colli_loss = self.eval_rollout(
+        train_loss, goal_loss, colli_loss, position_loss, rotation_loss = self.eval_rollout(
             rollout, batch
         )
         
-        self.log("train_loss", train_loss)
-        self.log("goal_loss", goal_loss)
-        self.log("colli_loss", colli_loss)
+        self.log("train_loss", train_loss, on_epoch=True)
+        self.log("goal_loss", goal_loss, on_epoch=True)
+        self.log("colli_loss", colli_loss, on_epoch=True)
+        self.log("position_loss", position_loss, on_epoch=True)
+        self.log("rotation_loss", rotation_loss, on_epoch=True)
         return train_loss
 
     def sample(self, q: torch.Tensor) -> torch.Tensor:
@@ -333,7 +377,7 @@ class TrainingPolicyNet(PolicyNet):
             )
             
             delta_q = self(xyz, q, target)
-            bc_val_loss = self.loss_fun(delta_q, batch["supervision"])
+            bc_val_loss = self.mse_loss(delta_q, batch["supervision"])
             
             
             result = {

@@ -28,7 +28,7 @@ SHOW_EXPERT_TRAJ = False
 NUM_DMEO = 10 
 
 # model_path = "./checkpoints/table_6k_pose/last.ckpt"
-model_path = "./checkpoints/w754tu3x/epoch-epoch=3-end.ckpt"
+model_path = "./checkpoints/sdn7og6d/last.ckpt"
 val_data_path = "./pretrain_data/ompl_table_30k"
 
 # model = PolicyNet().to("cuda:0")

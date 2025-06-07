@@ -20,8 +20,10 @@ NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 MAX_ROLLOUT_LENGTH = 100
 
-model_path = "./checkpoints/w754tu3x/epoch-epoch=3-end.ckpt"
-val_data_path = "./pretrain_data/ompl_table_6k"
+# model_path = "./checkpoints/w754tu3x/last.ckpt"
+model_path = "./checkpoints/sdn7og6d/last.ckpt"
+# model_path = "./checkpoints/mpinet_table_leak/last.ckpt"
+val_data_path = "./pretrain_data/ompl_table_30k"
 
 def move_target_with_key(target_position, key, step=0.02):
     moved = False
@@ -64,7 +66,7 @@ dataset = PointCloudTrajectoryDataset(
     DatasetType.VAL
 )
 
-problem_idx = 4
+problem_idx = 2
 print(f"\n======= Visualizing problem {problem_idx} =======")
 data = dataset[problem_idx]
 for key in data:

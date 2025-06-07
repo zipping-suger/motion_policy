@@ -5,7 +5,7 @@ training_model_parameters:
 
 data_module_parameters:
   data_dir: "./pretrain_data/mpinets_hybrid_training_data_tiny"
-  trajectory_key: 'hybrid_solutions' # Could also use 'global_solutions' for the global expert
+  trajectory_key: 'global_solutions' # Could also use 'global_solutions' for the global expert
   num_obstacle_points: 4096
   random_scale: 0
 
