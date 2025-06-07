@@ -11,7 +11,7 @@ from geometry import TorchCuboids, TorchCylinders
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 MAX_STEPS = 100  
-GOAL_THRESHOLD = 0.05  # 5cm threshold
+GOAL_THRESHOLD = 0.01  # 5cm threshold
 
 def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
     """Evaluate the model on the validation dataset."""

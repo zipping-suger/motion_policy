@@ -25,6 +25,7 @@ NUM_OBSTACLE_POINTS = 4096
 MAX_ROLLOUT_LENGTH = 100
 # Set this flag to True to always show expert trajectory, False to skip
 SHOW_EXPERT_TRAJ = False
+GOAL_THRESHOLD = 0.01  # 5cm threshold for goal reaching
 NUM_DMEO = 10 
 
 # model_path = "./checkpoints/table_6k_pose/last.ckpt"
@@ -182,7 +183,7 @@ for problem_idx in problems_to_visualize:
             
             distance_to_target = torch.norm(current_position - target_position, dim=1)
             # print(f"Step {i+1}: Distance to target: {distance_to_target.item():.4f} m")
-            if distance_to_target.item() < 0.05:  # 5cm threshold
+            if distance_to_target.item() < GOAL_THRESHOLD:  # 5cm threshold
                 print(f"Reached target in {i+1} steps!")
                 break
 

@@ -2,11 +2,11 @@ import torch
 from torch import nn
 import pytorch_lightning as pl
 from models.pcn import PCNEncoder
-from models.ptv3 import PointTransformerNet
 from typing import List, Tuple, Sequence, Dict, Callable
 import utils
 from utils import collision_loss
 from geometry import TorchCuboids, TorchCylinders
+from robofin.robots import FrankaRealRobot
 from robofin.pointcloud.torch import FrankaSampler, FrankaCollisionSampler
 
 
@@ -117,6 +117,9 @@ class TrainingPolicyNet(PolicyNet):
         self.collision_loss_weight = collision_loss_weight
         self.mse_loss = nn.MSELoss()
         self.validation_step_outputs = []
+        self.joint_limits = torch.tensor(
+            FrankaRealRobot.JOINT_LIMITS, dtype=torch.float32
+        )
 
     def rollout(
         self,
@@ -127,7 +130,6 @@ class TrainingPolicyNet(PolicyNet):
         xyz, q, target = (
             batch["xyz"],
             batch["configuration"],
-            # batch["target_configuration"],
             batch["target_pose"],
         )
         
@@ -139,8 +141,13 @@ class TrainingPolicyNet(PolicyNet):
 
         trajectory = [q]
         
+        # Ensure joint_limits is on the same device as q
+        joint_limits = self.joint_limits.to(q.device)
+        
         for i in range(rollout_length):
-            q = q + self(xyz, q, target)
+            q = torch.clamp(
+                q + self(xyz, q, target), joint_limits[:, 0], joint_limits[:, 1]
+            )
             trajectory.append(q)
             
             # Only use torch.no_grad() for sampling, which doesn't need gradients

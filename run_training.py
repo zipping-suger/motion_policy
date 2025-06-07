@@ -15,8 +15,8 @@ import uuid
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, PROJECT_ROOT)
 from data_loader import DataModule
-from models.policynet_opt import TrainingPolicyNet
-# from models.policynet import TrainingPolicyNet
+# from models.policynet_opt import TrainingPolicyNet
+from models.policynet import TrainingPolicyNet
 
 
 def setup_trainer(
@@ -176,20 +176,20 @@ def run():
         **(config["data_module_parameters"] or {}),
     )
     
-    # # Initialize the model
-    # mdl = TrainingPolicyNet(
-    #     **(config["shared_parameters"] or {}),
-    #     **(config["training_model_parameters"] or {}),
-    # )
-    
-    # Load the model from a checkpoint
-    model_path = "./checkpoints/w754tu3x/epoch-epoch=3-end.ckpt"
-    print(f"Loading model from {model_path}")
-    mdl = TrainingPolicyNet.load_from_checkpoint(
-        model_path,
+    # Initialize the model
+    mdl = TrainingPolicyNet(
         **(config["shared_parameters"] or {}),
         **(config["training_model_parameters"] or {}),
     )
+    
+    # # Load the model from a checkpoint
+    # model_path = "./checkpoints/w754tu3x/epoch-epoch=3-end.ckpt"
+    # print(f"Loading model from {model_path}")
+    # mdl = TrainingPolicyNet.load_from_checkpoint(
+    #     model_path,
+    #     **(config["shared_parameters"] or {}),
+    #     **(config["training_model_parameters"] or {}),
+    # )
     
     if logger is not None:
         logger.watch(mdl, log="gradients", log_freq=10)

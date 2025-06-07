@@ -19,6 +19,7 @@ from geometrout.primitive import Cuboid, Cylinder, Sphere
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 MAX_ROLLOUT_LENGTH = 100
+GOAL_THRESHOLD = 0.01  # 1 cm threshold for goal reaching
 
 # model_path = "./checkpoints/w754tu3x/last.ckpt"
 model_path = "./checkpoints/sdn7og6d/last.ckpt"
@@ -174,7 +175,7 @@ while True:
                 xyz[:, :NUM_ROBOT_POINTS, :3] = robot_points
                 current_position = gpu_fk_sampler.end_effector_pose(q)[:, :3, -1]
                 distance_to_target = torch.norm(current_position - data["target_position"].unsqueeze(0), dim=1)
-                if distance_to_target.item() < 0.05:
+                if distance_to_target.item() < GOAL_THRESHOLD:
                     print(f"Reached target in {i+1} steps!")
                     break
 
