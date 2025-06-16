@@ -161,19 +161,25 @@ class PointCloudBase(Dataset):
             target_config = f[self.trajectory_key][trajectory_idx, -1, :]
 
             target_position = torch.as_tensor(target_pose.xyz, dtype=torch.float32)
-            # TODO Need to check the ill-formed quaternions
-            target_quaternion = torch.as_tensor(
-                Quaternion(matrix=target_pose.matrix).elements, dtype=torch.float32
-            )
+            
+            # # TODO Need to check the ill-formed quaternions
+            # target_quaternion = torch.as_tensor(
+            #     Quaternion(matrix=target_pose.matrix).elements, dtype=torch.float32
+            # )
+            # item["target_position"] = target_position
+            # item["target_quaternion"] = target_quaternion
+            # item["target_pose"] = torch.cat((target_position, target_quaternion), dim=0).float()
+            # item["target_configuration"] = torch.as_tensor(target_config).float()
+            
+            # Use rotation matrix R9 as rotation representation
+            target_rot_mat = torch.as_tensor(target_pose.matrix[:3, :3].flatten(), dtype=torch.float32)
             item["target_position"] = target_position
-            item["target_quaternion"] = target_quaternion
-            item["target_pose"] = torch.cat((target_position, target_quaternion), dim=0).float()
+            item["target_rotation"] = target_rot_mat
+            item["target_pose"] = torch.cat((target_position, target_rot_mat), dim=0).float()
             item["target_configuration"] = torch.as_tensor(target_config).float()
 
             config = f[self.trajectory_key][trajectory_idx, timestep, :]
             config_tensor = torch.as_tensor(config).float()
-            
-            target_config_tensor = torch.as_tensor(target_config).float()
 
             if self.train:
                 # Add slight random noise to the joints
@@ -424,6 +430,7 @@ class DataModule(pl.LightningDataModule):
         num_target_points: int,
         random_scale: float,
         batch_size: int,
+        train_mode: str,
     ):
         """
         :param data_dir str: The directory with the data. Directory structure should
@@ -445,6 +452,7 @@ class DataModule(pl.LightningDataModule):
         # self.num_workers = os.cpu_count()
         self.num_workers = 16 # Manually set to 16 for my laptop and cluster
         self.random_scale = random_scale
+        self.train_mode = train_mode
 
     def setup(self, stage: Optional[str] = None):
         """
@@ -455,26 +463,29 @@ class DataModule(pl.LightningDataModule):
                                     procedure or if we are doing ad-hoc testing
         """
         if stage == "fit" or stage is None:
-            # For Behavioral Cloning, we use the PointCloudTrajectoryDataset
-            self.data_train = PointCloudInstanceDataset(
-                self.data_dir,
-                self.trajectory_key,
-                self.num_robot_points,
-                self.num_obstacle_points,
-                self.num_target_points,
-                dataset_type=DatasetType.TRAIN,
-                random_scale=self.random_scale,
-            )
-            
-            # # For Optimization based finetuning, we use the PointCloudTrajectoryDataset
-            # self.data_train = PointCloudTrajectoryDataset(
-            #     self.data_dir,
-            #     self.trajectory_key,
-            #     self.num_robot_points,
-            #     self.num_obstacle_points,
-            #     self.num_target_points,
-            #     dataset_type=DatasetType.TRAIN,
-            # )
+            if self.train_mode == "pretrain":
+                # Use PointCloudInstanceDataset for pretraining (behavioral cloning)
+                self.data_train = PointCloudInstanceDataset(
+                    self.data_dir,
+                    self.trajectory_key,
+                    self.num_robot_points,
+                    self.num_obstacle_points,
+                    self.num_target_points,
+                    dataset_type=DatasetType.TRAIN,
+                    random_scale=self.random_scale,
+                )
+            elif self.train_mode == "finetune":
+                # Use PointCloudTrajectoryDataset for fine-tuning (optimization)
+                self.data_train = PointCloudTrajectoryDataset(
+                    self.data_dir,
+                    self.trajectory_key,
+                    self.num_robot_points,
+                    self.num_obstacle_points,
+                    self.num_target_points,
+                    dataset_type=DatasetType.TRAIN,
+                )
+            else:
+                raise ValueError(f"Unknown training mode: {self.train_mode}. Expected 'pretrain' or 'finetune'.")
             
             self.data_val = PointCloudTrajectoryDataset(
                 self.data_dir,

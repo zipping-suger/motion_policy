@@ -15,8 +15,16 @@ import uuid
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, PROJECT_ROOT)
 from data_loader import DataModule
-# from models.policynet_opt import TrainingPolicyNet
-from models.policynet import TrainingPolicyNet
+
+
+def import_training_policy_net(mode):
+    if mode == "finetune":
+        from models.policynet_opt import TrainingPolicyNet
+    elif mode == "pretrain":
+        from models.policynet import TrainingPolicyNet
+    else:
+        raise ValueError(f"Unknown training mode: {mode}. Expected 'finetune' or 'pretrain'.")
+    return TrainingPolicyNet
 
 
 def setup_trainer(
@@ -172,9 +180,13 @@ def run():
     )
     dm = DataModule(
         batch_size=config["batch_size"],
+        train_mode= config["train_mode"],
         **(config["shared_parameters"] or {}),
         **(config["data_module_parameters"] or {}),
     )
+      
+    mode = config["train_mode"]
+    TrainingPolicyNet = import_training_policy_net(mode)
     
     # Initialize the model
     mdl = TrainingPolicyNet(
@@ -182,14 +194,19 @@ def run():
         **(config["training_model_parameters"] or {}),
     )
     
-    # # Load the model from a checkpoint
-    # model_path = "./checkpoints/w754tu3x/epoch-epoch=3-end.ckpt"
-    # print(f"Loading model from {model_path}")
-    # mdl = TrainingPolicyNet.load_from_checkpoint(
-    #     model_path,
-    #     **(config["shared_parameters"] or {}),
-    #     **(config["training_model_parameters"] or {}),
-    # )
+    if mode == "finetune":
+        model_path = config["model_path"]
+        print(f"Loading model from {model_path}")
+        mdl = TrainingPolicyNet.load_from_checkpoint(
+            model_path,
+            **(config["shared_parameters"] or {}),
+            **(config["training_model_parameters"] or {}),
+        )
+    else:
+        mdl = TrainingPolicyNet(
+            **(config["shared_parameters"] or {}),
+            **(config["training_model_parameters"] or {}),
+        )
     
     if logger is not None:
         logger.watch(mdl, log="gradients", log_freq=10)

@@ -3,7 +3,6 @@ from torch import nn
 import pytorch_lightning as pl
 from models.pcn import PCNEncoder
 from typing import List, Tuple, Sequence, Dict, Callable
-import utils
 from utils import collision_loss
 from geometry import TorchCuboids, TorchCylinders
 from robofin.robots import FrankaRealRobot
@@ -39,7 +38,7 @@ class PolicyNet(pl.LightningModule):
         )
         
         self.target_encoder = nn.Sequential(
-            nn.Linear(7, 32),
+            nn.Linear(12, 32),  # 7 for quaternion, 12 for rotation matrix
             nn.LeakyReLU(),
             nn.Linear(32, 64),
             nn.LeakyReLU(),
@@ -57,7 +56,7 @@ class PolicyNet(pl.LightningModule):
             nn.LeakyReLU(),
             nn.Linear(256, 128),
             nn.LeakyReLU(),
-            nn.Linear(128,7)
+            nn.Linear(128, 7)
         )
 
     def configure_optimizers(self):

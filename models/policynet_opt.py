@@ -3,14 +3,14 @@ from torch import nn
 import pytorch_lightning as pl
 from models.pcn import PCNEncoder
 from typing import List, Tuple, Sequence, Dict, Callable
-import utils
-from utils import collision_loss
+from utils import collision_loss, compute_pose_loss_rotmat
 from geometry import TorchCuboids, TorchCylinders
 from robofin.robots import FrankaRealRobot
 from robofin.pointcloud.torch import FrankaSampler, FrankaCollisionSampler
 
 
 ROLLOUT_LENGTH = 49  # The trajectory length will be ROLLOUT_LENGTH + 1
+ 
     
 class PolicyNet(pl.LightningModule):
     """
@@ -46,7 +46,7 @@ class PolicyNet(pl.LightningModule):
         )
         
         self.target_encoder = nn.Sequential(
-            nn.Linear(7, 32),
+            nn.Linear(12, 32),  # 7 for quaternion, 12 for rotation matrix
             nn.LeakyReLU(),
             nn.Linear(32, 64),
             nn.LeakyReLU(),
@@ -64,7 +64,7 @@ class PolicyNet(pl.LightningModule):
             nn.LeakyReLU(),
             nn.Linear(256, 128),
             nn.LeakyReLU(),
-            nn.Linear(128,7)
+            nn.Linear(128, 7)
         )
 
     def configure_optimizers(self):
@@ -181,42 +181,11 @@ class TrainingPolicyNet(PolicyNet):
         
         # Goal reaching loss in end-effector space
         pred_pose = self.fk_sampler.end_effector_pose(last_configuration)  # (B,4,4)
-        target_pose = batch["target_pose"]  # (B,7): [x, y, z, qw, qx, qy, qz]
+        target_pose = batch["target_pose"]  # (B,12) [x, y, z, flattened rotation matrix]
 
-        # Extract target position and quaternion
-        target_pos = target_pose[:, 0:3]  # (B,3)
-        target_quat = target_pose[:, 3:]  # (B,4) format: [qw, qx, qy, qz]
-
-        # Normalize quaternion and convert to rotation matrix
-        q_norm = torch.norm(target_quat, dim=1, keepdim=True)
-        q_norm = torch.clamp(q_norm, min=1e-12)
-        target_quat = target_quat / q_norm
-        qw, qx, qy, qz = target_quat.unbind(dim=1)  # <- Updated order
-
-        # Compute rotation matrix from quaternion
-        xx, yy, zz = qx * qx, qy * qy, qz * qz
-        xy, xz, yz = qx * qy, qx * qz, qy * qz
-        xw, yw, zw = qx * qw, qy * qw, qz * qw
-
-        R_target = torch.stack((
-            1 - 2 * (yy + zz), 2 * (xy - zw),     2 * (xz + yw),
-            2 * (xy + zw),     1 - 2 * (xx + zz), 2 * (yz - xw),
-            2 * (xz - yw),     2 * (yz + xw),     1 - 2 * (xx + yy)
-        ), dim=1).view(-1, 3, 3)  # (B,3,3)
-
-        # Extract predicted rotation and translation
-        R_pred = pred_pose[:, :3, :3]  # (B,3,3)
-        t_pred = pred_pose[:, :3, 3]   # (B,3)
-
-        # Positional loss (squared Euclidean)
-        position_loss = torch.sum((t_pred - target_pos) ** 2, dim=1)  # (B,)
-
-        # Rotational loss using geodesic distance (in radians)
-        R_diff = torch.bmm(R_pred.transpose(1, 2), R_target)  # (B,3,3)
-        trace = torch.einsum('bii->b', R_diff)  # (B,)
-        trace_clamped = torch.clamp((trace - 1) / 2, min=-1.0, max=1.0)
-        rotation_loss = torch.acos(trace_clamped)  # (B,)
-
+        position_loss, rotation_loss = compute_pose_loss_rotmat(
+            pred_pose, target_pose
+        )
 
         # Combine losses with balancing factor
         goal_loss = torch.mean(position_loss + 0.1 * rotation_loss) # Follow the rule of thumb, to make them roughly equal in scale

@@ -294,3 +294,88 @@ def collision_loss(
         margin=0.03,
         reduction="mean",
     )
+ 
+  
+def compute_pose_loss_quat(
+    pred_pose: torch.Tensor,
+    target_pose: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Computes position and rotation loss between predicted and target end-effector poses.
+
+    Args:
+        pred_pose (torch.Tensor): Predicted pose (B,4,4)
+        target_pose (torch.Tensor): Target pose (B,7): [x, y, z, qw, qx, qy, qz]
+
+    Returns:
+        position_loss (torch.Tensor): (B,) squared Euclidean position loss
+        rotation_loss (torch.Tensor): (B,) geodesic rotation loss in radians
+    """
+    # Extract target position and quaternion
+    target_pos = target_pose[:, 0:3]  # (B,3)
+    target_quat = target_pose[:, 3:]  # (B,4) format: [qw, qx, qy, qz]
+
+    # Normalize quaternion and convert to rotation matrix
+    q_norm = torch.norm(target_quat, dim=1, keepdim=True)
+    q_norm = torch.clamp(q_norm, min=1e-12)
+    target_quat = target_quat / q_norm
+    qw, qx, qy, qz = target_quat.unbind(dim=1)  # [qw, qx, qy, qz]
+
+    # Compute rotation matrix from quaternion
+    xx, yy, zz = qx * qx, qy * qy, qz * qz
+    xy, xz, yz = qx * qy, qx * qz, qy * qz
+    xw, yw, zw = qx * qw, qy * qw, qz * qw
+
+    R_target = torch.stack((
+        1 - 2 * (yy + zz), 2 * (xy - zw),     2 * (xz + yw),
+        2 * (xy + zw),     1 - 2 * (xx + zz), 2 * (yz - xw),
+        2 * (xz - yw),     2 * (yz + xw),     1 - 2 * (xx + yy)
+    ), dim=1).view(-1, 3, 3)  # (B,3,3)
+
+    # Extract predicted rotation and translation
+    R_pred = pred_pose[:, :3, :3]  # (B,3,3)
+    t_pred = pred_pose[:, :3, 3]   # (B,3)
+
+    # Positional loss (squared Euclidean)
+    position_loss = torch.sum((t_pred - target_pos) ** 2, dim=1)  # (B,)
+
+    # Rotational loss using geodesic distance (in radians)
+    R_diff = torch.bmm(R_pred.transpose(1, 2), R_target)  # (B,3,3)
+    trace = torch.einsum('bii->b', R_diff)  # (B,)
+    trace_clamped = torch.clamp((trace - 1) / 2, min=-1.0, max=1.0)
+    rotation_loss = torch.acos(trace_clamped)  # (B,)
+
+    return position_loss, rotation_loss
+
+
+def compute_pose_loss_rotmat(
+    pred_pose: torch.Tensor,
+    target_pose: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Computes position and rotation loss between predicted and target end-effector poses.
+
+    Args:
+        pred_pose (torch.Tensor): Predicted pose (B, 4, 4)
+        target_pose (torch.Tensor): Target pose (B, 12): [x, y, z, flattened 3x3 rotation matrix (row-major)]
+
+    Returns:
+        position_loss (torch.Tensor): (B,) squared Euclidean position loss
+        rotation_loss (torch.Tensor): (B,) squared Frobenius norm between rotation matrices
+    """
+    # Extract target position and rotation matrix
+    target_pos = target_pose[:, 0:3]  # (B, 3)
+    target_rot = target_pose[:, 3:12].view(-1, 3, 3)  # (B, 3, 3)
+
+    # Extract predicted rotation and translation
+    pred_rot = pred_pose[:, :3, :3]  # (B, 3, 3)
+    pred_pos = pred_pose[:, :3, 3]   # (B, 3)
+
+    # Position loss (squared Euclidean distance)
+    position_loss = torch.sum((pred_pos - target_pos) ** 2, dim=1)  # (B,)
+
+    # Rotation loss (Chordal Distance = squared Frobenius norm)
+    rotation_loss = torch.sum((pred_rot - target_rot) ** 2, dim=(1, 2))  # (B,)
+
+    return position_loss, rotation_loss
+
