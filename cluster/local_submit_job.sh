@@ -15,8 +15,8 @@ cat <<EOT > job.sh
 #!/bin/bash
 #SBATCH -n 1
 #SBATCH --cpus-per-task=32
-#SBATCH --gpus=rtx_3090:5
-#SBATCH --time=575:00:00
+#SBATCH --gpus=rtx_3090:4
+#SBATCH --time=192:00:00
 #SBATCH --mem-per-cpu=4048
 #SBATCH --output=$logfile
 #SBATCH --mail-type=END
