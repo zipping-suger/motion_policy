@@ -22,15 +22,16 @@ from geometry import TorchCuboids, TorchCylinders
 
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
+NUM_TARGET_POINTS = 128
 MAX_ROLLOUT_LENGTH = 100
 # Set this flag to True to always show expert trajectory, False to skip
 SHOW_EXPERT_TRAJ = False
-GOAL_THRESHOLD = 0.01  # 5cm threshold for goal reaching
+GOAL_THRESHOLD = 0.05  # 5cm threshold for goal reaching
 NUM_DMEO = 10 
 
 # model_path = "./checkpoints/table_6k_pose/last.ckpt"
-model_path = "./checkpoints/sdn7og6d/last.ckpt"
-val_data_path = "./pretrain_data/ompl_table_30k"
+model_path = "./checkpoints/sdrwmtfu/last.ckpt"
+val_data_path = "./pretrain_data/ompl_cubby_6k"
 
 # model = PolicyNet().to("cuda:0")
 model = PolicyNet.load_from_checkpoint(model_path).cuda()
@@ -68,6 +69,7 @@ dataset = PointCloudTrajectoryDataset(
     "global_solutions", 
     NUM_ROBOT_POINTS, 
     NUM_OBSTACLE_POINTS, 
+    NUM_TARGET_POINTS,
     DatasetType.VAL
 )
 
@@ -87,7 +89,7 @@ for problem_idx in problems_to_visualize:
     print(f"\n======= Visualizing problem {problem_idx} =======")
     
     # Get data for this problem
-    data = dataset[problem_idx]
+    data = dataset[problem_idx + 50]
     
     # Extract expert trajectory
     expert_trajectory = get_expert_trajectory(dataset, problem_idx)

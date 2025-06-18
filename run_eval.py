@@ -10,6 +10,7 @@ from geometry import TorchCuboids, TorchCylinders
 # Constants
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
+NUM_TARGET_POINTS = 128
 MAX_STEPS = 100  
 GOAL_THRESHOLD = 0.01  # 5cm threshold
 
@@ -25,6 +26,7 @@ def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
         "global_solutions",
         NUM_ROBOT_POINTS,
         NUM_OBSTACLE_POINTS,
+        NUM_TARGET_POINTS,
         DatasetType.VAL
     )
 

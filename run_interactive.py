@@ -18,12 +18,11 @@ from geometrout.primitive import Cuboid, Cylinder, Sphere
 
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
+NUM_TARGET_POINTS = 128
 MAX_ROLLOUT_LENGTH = 100
 GOAL_THRESHOLD = 0.01  # 1 cm threshold for goal reaching
 
-# model_path = "./checkpoints/w754tu3x/last.ckpt"
-model_path = "./checkpoints/sdn7og6d/last.ckpt"
-# model_path = "./checkpoints/mpinet_table_leak/last.ckpt"
+model_path = "./checkpoints/sdrwmtfu/last.ckpt"
 val_data_path = "./pretrain_data/ompl_table_30k"
 
 def move_target_with_key(target_position, key, step=0.02):
@@ -64,6 +63,7 @@ dataset = PointCloudTrajectoryDataset(
     "global_solutions", 
     NUM_ROBOT_POINTS, 
     NUM_OBSTACLE_POINTS, 
+    NUM_TARGET_POINTS,
     DatasetType.VAL
 )
 

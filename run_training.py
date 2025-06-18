@@ -202,11 +202,22 @@ def run():
             **(config["shared_parameters"] or {}),
             **(config["training_model_parameters"] or {}),
         )
+    elif mode == "pretrain":
+        if config["model_path"] is None:
+            print("Training from scratch")
+            mdl = TrainingPolicyNet(
+                **(config["shared_parameters"] or {}),
+                **(config["training_model_parameters"] or {}),
+            )
+        else:
+            print(f"Loading model from {config['model_path']}")
+            mdl = TrainingPolicyNet.load_from_checkpoint(
+                config["model_path"],
+                **(config["shared_parameters"] or {}),
+                **(config["training_model_parameters"] or {}),
+            )
     else:
-        mdl = TrainingPolicyNet(
-            **(config["shared_parameters"] or {}),
-            **(config["training_model_parameters"] or {}),
-        )
+        raise ValueError(f"Unknown training mode: {mode}. Expected 'finetune' or 'pretrain'.")
     
     if logger is not None:
         logger.watch(mdl, log="gradients", log_freq=10)
