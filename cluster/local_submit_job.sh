@@ -15,7 +15,7 @@ cat <<EOT > job.sh
 #!/bin/bash
 #SBATCH -n 1
 #SBATCH --cpus-per-task=32
-#SBATCH --gpus=rtx_3090:4
+#SBATCH --gpus=rtx_3090:1
 #SBATCH --time=143:00:00
 #SBATCH --mem-per-cpu=4048
 #SBATCH --output=$logfile
@@ -31,7 +31,7 @@ cd $HOME
 cd motion_policy
 ulimit -n 4096  
 wandb login e69097b8c1bd646d9218e652823487632097445d
-python run_training.py configs/train_cfg.yaml 
+python run_training.py configs/train_cfg_opt.yaml 
 EOT
 
 echo "Submitting job to SLURM..."
