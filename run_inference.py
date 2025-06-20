@@ -30,7 +30,7 @@ GOAL_THRESHOLD = 0.05  # 5cm threshold for goal reaching
 NUM_DMEO = 10 
 
 # model_path = "./checkpoints/table_6k_pose/last.ckpt"
-model_path = "./checkpoints/sdrwmtfu/last.ckpt"
+model_path = "./checkpoints/dqu9herp/last.ckpt"
 val_data_path = "./pretrain_data/ompl_cubby_6k"
 
 # model = PolicyNet().to("cuda:0")

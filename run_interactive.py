@@ -4,7 +4,8 @@ import time
 import torch
 from tqdm.auto import tqdm
 from pathlib import Path
-from geometrout.transform import SE3
+from geometrout.transform import SE3, SO3
+from pyquaternion import Quaternion
 
 from robofin.robots import FrankaRobot, FrankaGripper
 from robofin.bullet import BulletController
@@ -16,14 +17,28 @@ from data_loader import PointCloudTrajectoryDataset, DatasetType
 from geometry import construct_mixed_point_cloud
 from geometrout.primitive import Cuboid, Cylinder, Sphere
 
+
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 NUM_TARGET_POINTS = 128
-MAX_ROLLOUT_LENGTH = 100
+MAX_ROLLOUT_LENGTH = 50
 GOAL_THRESHOLD = 0.01  # 1 cm threshold for goal reaching
 
-model_path = "./checkpoints/sdrwmtfu/last.ckpt"
-val_data_path = "./pretrain_data/ompl_table_30k"
+model_path = "./checkpoints/dqu9herp/last.ckpt"
+val_data_path = "./pretrain_data/ompl_cubby_22k"
+
+
+def ensure_orthogonal_rotmat_polar(target_rotmat):
+    target_rotmat = target_rotmat.reshape(3, 3)
+    U, _, Vt = np.linalg.svd(target_rotmat)
+    orthogonal_rotmat = U @ Vt
+    
+    # Ensure determinant is +1
+    if np.linalg.det(orthogonal_rotmat) < 0:
+        Vt[-1, :] *= -1
+        orthogonal_rotmat = U @ Vt
+    
+    return orthogonal_rotmat
 
 def move_target_with_key(target_position, key, step=0.02):
     moved = False
@@ -67,7 +82,7 @@ dataset = PointCloudTrajectoryDataset(
     DatasetType.VAL
 )
 
-problem_idx = 2
+problem_idx = 10
 print(f"\n======= Visualizing problem {problem_idx} =======")
 data = dataset[problem_idx]
 for key in data:
@@ -131,8 +146,11 @@ while True:
     moved = move_target_with_key(target_position, key)
     if moved:
         target_xyz = target_position  # (x, y, z)
-        target_quat = data["target_quaternion"].cpu().numpy()
-        target_pose_se3 = SE3(xyz=target_xyz, quaternion=target_quat)
+        print("Targt pose", target_pose)
+        # Use the rotation part from target_pose (which is an SE3 object)
+        mat = target_pose.matrix
+        mat[:3, 3] = target_xyz  # Update translation part
+        target_pose_se3 = SE3(matrix=mat)
         target_franka.marionette(target_pose_se3)
 
     sim.step()
@@ -160,8 +178,8 @@ while True:
             # Solve Inverse Kinematics to get target configuration
             # Construct the desired end-effector pose as an SE3 object
             target_xyz = torch.tensor(target_position, dtype=torch.float32, device=xyz.device).unsqueeze(0)  # shape (1, 3)
-            target_quat = data["target_quaternion"].unsqueeze(0)  # shape (1, 4)
-            target_input = torch.cat([target_xyz, target_quat], dim=-1)  # shape (1, 7)
+            target_rotmat = data["target_rotation"].unsqueeze(0)  # shape (1, 12)
+            target_input = torch.cat([target_xyz, target_rotmat], dim=-1)  # shape (1, 12)
 
             trajectory = []
             q = start_config_batched.clone()
