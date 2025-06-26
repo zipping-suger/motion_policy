@@ -23,15 +23,15 @@ from geometry import TorchCuboids, TorchCylinders
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 NUM_TARGET_POINTS = 128
-MAX_ROLLOUT_LENGTH = 100
+MAX_ROLLOUT_LENGTH = 50
 # Set this flag to True to always show expert trajectory, False to skip
 SHOW_EXPERT_TRAJ = False
 GOAL_THRESHOLD = 0.05  # 5cm threshold for goal reaching
 NUM_DMEO = 10 
 
-# model_path = "./checkpoints/table_6k_pose/last.ckpt"
-model_path = "./checkpoints/dqu9herp/last.ckpt"
-val_data_path = "./pretrain_data/ompl_cubby_6k"
+# model_path = "./checkpoints/sdrwmtfu/last.ckpt"
+model_path = "./checkpoints/dqu9herp/epoch-epoch=2-end.ckpt"
+val_data_path = "./pretrain_data/ompl_cubby_22k"
 
 # model = PolicyNet().to("cuda:0")
 model = PolicyNet.load_from_checkpoint(model_path).cuda()

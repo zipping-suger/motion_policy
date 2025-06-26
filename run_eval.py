@@ -11,7 +11,7 @@ from geometry import TorchCuboids, TorchCylinders
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 NUM_TARGET_POINTS = 128
-MAX_STEPS = 100  
+MAX_STEPS = 50 
 GOAL_THRESHOLD = 0.05  # 5cm threshold
 
 def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
@@ -148,7 +148,7 @@ def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate PolicyNet on validation data.")
-    parser.add_argument("--model_path", type=str, default="./checkpoints/dqu9herp/last.ckpt", help="Path to the trained model checkpoint.")
+    parser.add_argument("--model_path", type=str, default="./checkpoints/dqu9herp/epoch-epoch=2-end.ckpt", help="Path to the trained model checkpoint.")
     parser.add_argument("--val_data_path", type=str, default="./pretrain_data/ompl_cubby_22k", help="Path to the validation dataset directory.")
     args = parser.parse_args()
     run_eval(args.model_path, args.val_data_path)

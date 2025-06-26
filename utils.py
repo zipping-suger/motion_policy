@@ -29,6 +29,43 @@ from geometry import TorchCuboids, TorchCylinders
 from robofin.robots import FrankaRobot, FrankaRealRobot
 
 
+def convert_robotB_to_robotA(pose_B):
+    """
+    Robot B is the Franka robot defined in robofin, which has an additional tool transformation
+    Robot A is the Franka robot defined in Issac Lab
+    
+    Converts Robot B's pose (4x4 matrix) to match Robot A's convention
+    by removing the additional tool transformation.
+    
+    Args:
+        pose_B: 4x4 transformation matrix from Robot B
+    
+    Returns:
+        T_A: 4x4 transformation matrix in Robot A's convention
+    """
+    # Extract rotation matrix and translation vector
+    R_B = pose_B[:3, :3]
+    p_B = pose_B[:3, 3]
+    
+    # Compute corrected rotation: 
+    # Negate first two columns (180° z-rotation compensation)
+    R_A = R_B.copy()
+    R_A[:, 0] = -R_A[:, 0]  # Negate x-axis
+    R_A[:, 1] = -R_A[:, 1]  # Negate y-axis
+    
+    # Compute corrected translation:
+    # Remove tool offset along z-axis
+    w = R_B[:, 2]  # Z-axis direction vector
+    p_A = p_B - 0.1 * w
+    
+    # Build corrected transformation matrix
+    T_A = np.eye(4)
+    T_A[:3, :3] = R_A
+    T_A[:3, 3] = p_A
+    
+    return T_A
+
+
 def _normalize_franka_joints_numpy(
     batch_trajectory: np.ndarray,
     limits: Tuple[float, float] = (-1, 1),
