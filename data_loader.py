@@ -150,33 +150,30 @@ class PointCloudBase(Dataset):
         """
         item = {}
         with h5py.File(str(self._database), "r") as f:
-            target_pose = FrankaRealRobot.fk(
-                f[self.trajectory_key][trajectory_idx, -1, :]
-            )
-            target_points = self.fk_sampler.sample_end_effector(
-                torch.as_tensor(target_pose.matrix).float(),
-                num_points=self.num_target_points,
-            )
-            
             target_config = f[self.trajectory_key][trajectory_idx, -1, :]
-
-            target_position = torch.as_tensor(target_pose.xyz, dtype=torch.float32)
             
-            # # TODO Need to check the ill-formed quaternions
-            # target_quaternion = torch.as_tensor(
-            #     Quaternion(matrix=target_pose.matrix).elements, dtype=torch.float32
+            target_pose = FrankaRealRobot.fk(
+                target_config
+            )
+            
+            # Convert to Robot A convention
+            target_pose_matrix_A = utils.convert_robotB_to_robotA(target_pose.matrix)            
+    
+            # target_points = self.fk_sampler.sample_end_effector(
+            #     torch.as_tensor(target_pose.matrix).float(),
+            #     num_points=self.num_target_points,
             # )
-            # item["target_position"] = target_position
-            # item["target_quaternion"] = target_quaternion
-            # item["target_pose"] = torch.cat((target_position, target_quaternion), dim=0).float()
-            # item["target_configuration"] = torch.as_tensor(target_config).float()
             
-            # Use rotation matrix R9 as rotation representation
-            target_rot_mat = torch.as_tensor(target_pose.matrix[:3, :3].flatten(), dtype=torch.float32)
+            # Extract position and quaternion from Robot A pose
+            target_position = torch.as_tensor(target_pose_matrix_A[:3, 3], dtype=torch.float32)
+            target_quaternion = torch.as_tensor(
+                Quaternion(matrix=target_pose_matrix_A).elements, dtype=torch.float32
+            )
             item["target_position"] = target_position
-            item["target_rotation"] = target_rot_mat
-            item["target_pose"] = torch.cat((target_position, target_rot_mat), dim=0).float()
+            item["target_quaternion"] = target_quaternion
+            item["target_pose"] = torch.cat((target_position, target_quaternion), dim=0).float()
             item["target_configuration"] = torch.as_tensor(target_config).float()
+            
 
             config = f[self.trajectory_key][trajectory_idx, timestep, :]
             config_tensor = torch.as_tensor(config).float()
@@ -274,10 +271,10 @@ class PointCloudBase(Dataset):
             ]
             cylinders = [c for c in cylinders if not c.is_zero_volume()]
 
-            obstacle_points = construct_mixed_point_cloud(
-                cuboids + cylinders, self.num_obstacle_points
-            )
-            item["xyz"] = self._construct_pointcloud(robot_points, obstacle_points, target_points)
+            # obstacle_points = construct_mixed_point_cloud(
+            #     cuboids + cylinders, self.num_obstacle_points
+            # )
+            # item["xyz"] = self._construct_pointcloud(robot_points, obstacle_points, target_points)
         return item
 
 

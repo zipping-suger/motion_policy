@@ -13,7 +13,7 @@ from robofin.bullet import BulletController
 from robofin.pointcloud.torch import FrankaSampler
 
 from models.policynet import PolicyNet
-from utils import normalize_franka_joints, unnormalize_franka_joints
+from utils import normalize_franka_joints, unnormalize_franka_joints, convert_robotB_to_robotA_torch
 from data_loader import PointCloudTrajectoryDataset, DatasetType
 from geometry import construct_mixed_point_cloud
 from geometrout.primitive import Cuboid, Cylinder, Sphere
@@ -25,13 +25,13 @@ NUM_OBSTACLE_POINTS = 4096
 NUM_TARGET_POINTS = 128
 MAX_ROLLOUT_LENGTH = 50
 # Set this flag to True to always show expert trajectory, False to skip
-SHOW_EXPERT_TRAJ = False
+SHOW_EXPERT_TRAJ = True
 GOAL_THRESHOLD = 0.05  # 5cm threshold for goal reaching
 NUM_DMEO = 10 
+ACTION_SCALE = 0.1  # Scale for the action space
 
-# model_path = "./checkpoints/sdrwmtfu/last.ckpt"
-model_path = "./checkpoints/dqu9herp/epoch-epoch=2-end.ckpt"
-val_data_path = "./pretrain_data/ompl_cubby_22k"
+model_path = "./checkpoints/u9hyu6es/epoch=10-step=1463.ckpt"
+val_data_path = "./pretrain_data/ompl_free_8k"
 
 # model = PolicyNet().to("cuda:0")
 model = PolicyNet.load_from_checkpoint(model_path).cuda()
@@ -142,7 +142,6 @@ for problem_idx in problems_to_visualize:
     # Run model to get trajectory
     with torch.no_grad():
         # Add batch dimension for model input
-        xyz = data["xyz"].unsqueeze(0)
         start_config_batched = start_config.unsqueeze(0)
         target_config_batched = target_config.unsqueeze(0)
         target_pose_batched = target_pose.unsqueeze(0)
@@ -165,7 +164,7 @@ for problem_idx in problems_to_visualize:
         
         for i in range(MAX_ROLLOUT_LENGTH):
             # Forward pass through the model
-            delta_q = model(xyz, q, target_input)
+            delta_q = model(q, target_input)*ACTION_SCALE
             q = q + delta_q
             
             # Unnormalize for visualization
@@ -176,12 +175,14 @@ for problem_idx in problems_to_visualize:
             # Update point cloud with new robot position
             # robot_points = gpu_fk_sampler.sample(unnorm_q, NUM_ROBOT_POINTS)
             robot_points = gpu_fk_sampler.sample(q, NUM_ROBOT_POINTS)
-            xyz[:, :NUM_ROBOT_POINTS, :3] = robot_points
             
             # Check if we've reached the target
             target_position = data["target_position"].unsqueeze(0)
             # current_position = gpu_fk_sampler.end_effector_pose(unnorm_q)[:, :3, -1]
-            current_position = gpu_fk_sampler.end_effector_pose(q)[:, :3, -1]
+            eff = gpu_fk_sampler.end_effector_pose(q)
+            # Convert to Robot A tool frame
+            eff = convert_robotB_to_robotA_torch(eff)
+            current_position = eff[:, :3, -1]
             
             distance_to_target = torch.norm(current_position - target_position, dim=1)
             # print(f"Step {i+1}: Distance to target: {distance_to_target.item():.4f} m")

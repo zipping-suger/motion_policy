@@ -3,10 +3,11 @@ from torch import nn
 import pytorch_lightning as pl
 from models.pcn import PCNEncoder
 from typing import List, Tuple, Sequence, Dict, Callable
-from utils import collision_loss
+from utils import collision_loss, convert_robotB_to_robotA_torch
 from geometry import TorchCuboids, TorchCylinders
 from robofin.robots import FrankaRealRobot
 from robofin.pointcloud.torch import FrankaSampler, FrankaCollisionSampler
+from models.mlp import MLP
 
 class PolicyNet(pl.LightningModule):
     """
@@ -18,45 +19,12 @@ class PolicyNet(pl.LightningModule):
         Constructs the model
         """
         super().__init__()
-        self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
-        # self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
-        
-        # NOTE: There is a issue with sponv with fp16 validation
-        # Either set the precision to 32 in run_training.py
-        # or force the precision to 32 in validation_step in policynet.py
-        
-        self.config_encoder = nn.Sequential(
-            nn.Linear(7, 32),
-            nn.LeakyReLU(),
-            nn.Linear(32, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 128),
-            nn.LeakyReLU(),
-            nn.Linear(128, 128),
-            nn.LeakyReLU(),
-            nn.Linear(128, 64),
-        )
-        
-        self.target_encoder = nn.Sequential(
-            nn.Linear(12, 32),  # 7 for quaternion, 12 for rotation matrix
-            nn.LeakyReLU(),
-            nn.Linear(32, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 128),
-            nn.LeakyReLU(),
-            nn.Linear(128, 128),
-            nn.LeakyReLU(),
-            nn.Linear(128, 64),
-        )
-        
-        self.decoder = nn.Sequential(
-            nn.Linear(pc_latent_dim + 64 + 64, 512),
-            nn.LeakyReLU(),
-            nn.Linear(512, 256),
-            nn.LeakyReLU(),
-            nn.Linear(256, 128),
-            nn.LeakyReLU(),
-            nn.Linear(128, 7)
+        self.policy = MLP(
+            input_dim=14,
+            output_dim=7,
+            hidden_dims=[128, 128, 64],
+            activation="elu",
+            last_activation="tanh"
         )
 
     def configure_optimizers(self):
@@ -66,14 +34,10 @@ class PolicyNet(pl.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
         return optimizer
 
-    def forward(self, xyz: torch.Tensor, q: torch.Tensor, target:torch.Tensor) -> torch.Tensor:  # type: ignore[override]
-        pc_encoding = self.point_cloud_encoder(xyz)
-        config_encoding = self.config_encoder(q)
-        target_encoding = self.target_encoder(target)
-        x = torch.cat((pc_encoding, config_encoding, target_encoding), dim=1)
-        return self.decoder(x)
+    def forward(self, q: torch.Tensor, target: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        return self.policy(torch.cat((q, target), dim=1))
     
-    
+
 class TrainingPolicyNet(PolicyNet):
     def __init__(
         self,
@@ -81,6 +45,7 @@ class TrainingPolicyNet(PolicyNet):
         num_robot_points: int,
         bc_loss_weight: float,
         collision_loss_weight: float,
+        action_scale: float,
     ):
         """
         Creates the network and assigns additional parameters for training
@@ -96,6 +61,7 @@ class TrainingPolicyNet(PolicyNet):
         self.collision_sampler = None
         self.bc_loss_weight = bc_loss_weight
         self.collision_loss_weight = collision_loss_weight
+        self.action_scale = action_scale
         self.loss_fun = nn.MSELoss()
         self.validation_step_outputs = []
         self.joint_limits = torch.tensor(
@@ -108,8 +74,7 @@ class TrainingPolicyNet(PolicyNet):
         rollout_length: int,
         sampler: Callable[[torch.Tensor], torch.Tensor],
     ) -> List[torch.Tensor]:
-        xyz, q, target = (
-            batch["xyz"],
+        q, target = (
             batch["configuration"],
             batch["target_pose"],
         )
@@ -117,7 +82,6 @@ class TrainingPolicyNet(PolicyNet):
         # This block is to adapt for the case where we only want to roll out a
         # single trajectory
         if q.ndim == 1:
-            xyz = xyz.unsqueeze(0)
             q = q.unsqueeze(0)
 
         trajectory = [q]
@@ -128,18 +92,10 @@ class TrainingPolicyNet(PolicyNet):
         for i in range(rollout_length):
             with torch.no_grad():
                 q = torch.clamp(
-                    q + self(xyz, q, target), joint_limits[:, 0], joint_limits[:, 1]
+                    q + self(q, target)*self.action_scale, joint_limits[:, 0], joint_limits[:, 1]
                 )
             trajectory.append(q)
-            
-            
-            with torch.no_grad():
-                robot_samples = sampler(q).type_as(xyz)
-            # replace the fist num_robot_points points in the point cloud
-            # with the robot samples
-            xyz[:, : self.num_robot_points, :3] = robot_samples
-            
-
+                        
         return trajectory
 
     def training_step(  # type: ignore[override]
@@ -155,51 +111,20 @@ class TrainingPolicyNet(PolicyNet):
         :param batch_idx int: The index of the batch (not used by this function)
         :rtype torch.Tensor: The overall weighted loss (used for backprop)
         """
-        xyz, q, target = (
-            batch["xyz"],
+        q, target = (
             batch["configuration"],
-            # batch["target_configuration"],
             batch["target_pose"],
         )
         
-        delta_q = self(xyz, q, target)
+        delta_q = self(q, target)*self.action_scale
         (
-            # cuboid_centers,
-            # cuboid_dims,
-            # cuboid_quats,
-            # cylinder_centers,
-            # cylinder_radii,
-            # cylinder_heights,
-            # cylinder_quats,
             supervision,
         ) = (
-            # batch["cuboid_centers"],
-            # batch["cuboid_dims"],
-            # batch["cuboid_quats"],
-            # batch["cylinder_centers"],
-            # batch["cylinder_radii"],
-            # batch["cylinder_heights"],
-            # batch["cylinder_quats"],
             batch["supervision"],
         )
         
-        
         bc_loss = self.loss_fun(delta_q, supervision)
-        # if self.fk_sampler is None:
-        #     self.fk_sampler = FrankaSampler(self.device, use_cache=True)
-        # input_pc = self.fk_sampler.sample(
-        #     q + delta_q, self.num_robot_points
-        # )
-        # colli_los = collision_loss(
-        #     input_pc,
-        #     cuboid_centers,
-        #     cuboid_dims,
-        #     cuboid_quats,
-        #     cylinder_centers,
-        #     cylinder_radii,
-        #     cylinder_heights,
-        #     cylinder_quats,
-        # )
+
         self.log("bc_loss", bc_loss)
         # self.log("collision_loss", colli_los)
         train_loss = (
@@ -234,19 +159,19 @@ class TrainingPolicyNet(PolicyNet):
         # These are defined here because they need to be set on the correct devices.
         # The easiest way to do this is to do it at call-time
         
-        with torch.amp.autocast("cuda", enabled=False):  # Force FP32 precision
-        
+        with torch.no_grad():
             if self.fk_sampler is None:
                 self.fk_sampler = FrankaSampler(self.device, use_cache=True)
             if self.collision_sampler is None:
                 self.collision_sampler = FrankaCollisionSampler(
                     self.device, with_base_link=False
                 )
-            rollout = self.rollout(batch, 54, self.sample)
+            rollout = self.rollout(batch, 49, self.sample)
 
             assert self.fk_sampler is not None  # Necessary for mypy to type properly
             
             eff = self.fk_sampler.end_effector_pose(rollout[-1])
+            eff = convert_robotB_to_robotA_torch(eff)  # Convert to Robot A tool frame
             position_error = torch.linalg.vector_norm(
                 eff[:, :3, -1] - batch["target_position"], dim=1
             )
@@ -268,7 +193,7 @@ class TrainingPolicyNet(PolicyNet):
             rollout = torch.stack(rollout, dim=1)
             # Here is some Pytorch broadcasting voodoo to calculate whether each
             # rollout has a collision or not (looking to calculate the collision rate)
-            assert rollout.shape == (B, 55, 7)
+            assert rollout.shape == (B, 50, 7)
             rollout = rollout.reshape(-1, 7)
             has_collision = torch.zeros(B, dtype=torch.bool, device=self.device)
             collision_spheres = self.collision_sampler.compute_spheres(rollout)
@@ -279,7 +204,7 @@ class TrainingPolicyNet(PolicyNet):
                     cuboids.sdf_sequence(sphere_sequence),
                     cylinders.sdf_sequence(sphere_sequence),
                 )
-                assert sdf_values.shape == (B, 55, num_spheres)
+                assert sdf_values.shape == (B, 50, num_spheres)
                 radius_collisions = torch.any(
                     sdf_values.reshape((sdf_values.size(0), -1)) <= radius, dim=-1
                 )
@@ -289,16 +214,13 @@ class TrainingPolicyNet(PolicyNet):
             
             
             # One step bc loss
-            xyz, q, target = (
-                batch["xyz"],
+            q, target = (
                 batch["configuration"],
-                # batch["target_configuration"],
                 batch["target_pose"],
             )
             
-            delta_q = self(xyz, q, target)
+            delta_q = self(q, target)*self.action_scale  # Scale the action space
             bc_val_loss = self.loss_fun(delta_q, batch["supervision"])
-            
             
             result = {
                 "avg_target_error": avg_target_error,

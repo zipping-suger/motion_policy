@@ -3,15 +3,16 @@ from torch import nn
 import pytorch_lightning as pl
 from models.pcn import PCNEncoder
 from typing import List, Tuple, Sequence, Dict, Callable
-from utils import collision_loss, compute_pose_loss_rotmat
+from utils import collision_loss, compute_pose_loss_rotmat, convert_robotB_to_robotA_torch, compute_pose_loss_rotmat_quat
 from geometry import TorchCuboids, TorchCylinders
 from robofin.robots import FrankaRealRobot
 from robofin.pointcloud.torch import FrankaSampler, FrankaCollisionSampler
+from models.mlp import MLP
 
 
 ROLLOUT_LENGTH = 49  # The trajectory length will be ROLLOUT_LENGTH + 1
- 
-    
+
+
 class PolicyNet(pl.LightningModule):
     """
     The architecture laid out here is the default architecture laid out in the
@@ -22,77 +23,25 @@ class PolicyNet(pl.LightningModule):
         Constructs the model
         """
         super().__init__()
-        self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
-        # self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
-        
-        # NOTE: There is a issue with sponv with fp16 validation
-        # Either set the precision to 32 in run_training.py
-        # or force the precision to 32 in validation_step in policynet.py
-        
-        # Not Update the point cloud encoder during the fine-tuning
-        for param in self.point_cloud_encoder.parameters():
-            param.requires_grad = False
-        
-        self.config_encoder = nn.Sequential(
-            nn.Linear(7, 32),
-            nn.LeakyReLU(),
-            nn.Linear(32, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 128),
-            nn.LeakyReLU(),
-            nn.Linear(128, 128),
-            nn.LeakyReLU(),
-            nn.Linear(128, 64),
-        )
-        
-        self.target_encoder = nn.Sequential(
-            nn.Linear(12, 32),  # 7 for quaternion, 12 for rotation matrix
-            nn.LeakyReLU(),
-            nn.Linear(32, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 128),
-            nn.LeakyReLU(),
-            nn.Linear(128, 128),
-            nn.LeakyReLU(),
-            nn.Linear(128, 64),
-        )
-        
-        self.decoder = nn.Sequential(
-            nn.Linear(pc_latent_dim + 64 + 64, 512),
-            nn.LeakyReLU(),
-            nn.Linear(512, 256),
-            nn.LeakyReLU(),
-            nn.Linear(256, 128),
-            nn.LeakyReLU(),
-            nn.Linear(128, 7)
+        self.policy = MLP(
+            input_dim=14,
+            output_dim=7,
+            hidden_dims=[128, 128, 64],
+            activation="elu",
+            last_activation="tanh"
         )
 
     def configure_optimizers(self):
         """
         A standard method in PyTorch lightning to set the optimizer
         """
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
+        optimizer = torch.optim.Adam(self.parameters(), lr=3e-4)
         return optimizer
 
-    def forward(self, xyz: torch.Tensor, q: torch.Tensor, target:torch.Tensor) -> torch.Tensor:  # type: ignore[override]
-        pc_encoding = self.point_cloud_encoder(xyz)
-        config_encoding = self.config_encoder(q)
-        target_encoding = self.target_encoder(target)
-        x = torch.cat((pc_encoding, config_encoding, target_encoding), dim=1)
-        return self.decoder(x)
-    
-    def forward_with_latent(
-        self, xyz_latent: torch.Tensor, q: torch.Tensor, target: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Returns the delta_q and the latent representation of the point cloud
-        """
-        config_encoding = self.config_encoder(q)
-        target_encoding = self.target_encoder(target)
-        x = torch.cat((xyz_latent, config_encoding, target_encoding), dim=1)
-        return self.decoder(x)
-    
-    
+    def forward(self, q: torch.Tensor, target: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        return self.policy(torch.cat((q, target), dim=1))
+       
+   
 class TrainingPolicyNet(PolicyNet):
     def __init__(
         self,
@@ -100,6 +49,7 @@ class TrainingPolicyNet(PolicyNet):
         num_robot_points: int,
         goal_loss_weight: float,
         collision_loss_weight: float,
+        action_scale: float,
     ):
         """
         Creates the network and assigns additional parameters for training
@@ -115,6 +65,7 @@ class TrainingPolicyNet(PolicyNet):
         self.collision_sampler = None
         self.goal_loss_weight = goal_loss_weight
         self.collision_loss_weight = collision_loss_weight
+        self.action_scale = action_scale
         self.mse_loss = nn.MSELoss()
         self.validation_step_outputs = []
         self.joint_limits = torch.tensor(
@@ -127,8 +78,7 @@ class TrainingPolicyNet(PolicyNet):
         rollout_length: int,
         sampler: Callable[[torch.Tensor], torch.Tensor],
     ) -> List[torch.Tensor]:
-        xyz, q, target = (
-            batch["xyz"],
+        q, target = (
             batch["configuration"],
             batch["target_pose"],
         )
@@ -136,7 +86,6 @@ class TrainingPolicyNet(PolicyNet):
         # This block is to adapt for the case where we only want to roll out a
         # single trajectory
         if q.ndim == 1:
-            xyz = xyz.unsqueeze(0)
             q = q.unsqueeze(0)
 
         trajectory = [q]
@@ -146,15 +95,10 @@ class TrainingPolicyNet(PolicyNet):
         
         for i in range(rollout_length):
             q = torch.clamp(
-                q + self(xyz, q, target), joint_limits[:, 0], joint_limits[:, 1]
+                q + self(q, target)*self.action_scale, joint_limits[:, 0], joint_limits[:, 1]
             )
             trajectory.append(q)
-            
-            # Only use torch.no_grad() for sampling, which doesn't need gradients
-            with torch.no_grad():
-                robot_samples = sampler(q).type_as(xyz) 
-            xyz[:, : self.num_robot_points, :3] = robot_samples
-            
+                        
         return trajectory
     
     # Differentialble rollout evaluation function with repect to the rollout
@@ -176,14 +120,14 @@ class TrainingPolicyNet(PolicyNet):
             f"target configuration shape {target_configuration.shape}"
         )
         
-        # # Goal loss in configuration space
-        # goal_loss = torch.mean((last_configuration - target_configuration) ** 2)
-        
         # Goal reaching loss in end-effector space
         pred_pose = self.fk_sampler.end_effector_pose(last_configuration)  # (B,4,4)
-        target_pose = batch["target_pose"]  # (B,12) [x, y, z, flattened rotation matrix]
+        # Covert to robot A frame
+        pred_pose = convert_robotB_to_robotA_torch(pred_pose)
+        # target_pose = batch["target_pose"]  # (B,12) [x, y, z, flattened rotation matrix]
+        target_pose = batch["target_pose"] # (B, 7) [x, y, z, qw, qx, qy, qz]
 
-        position_loss, rotation_loss = compute_pose_loss_rotmat(
+        position_loss, rotation_loss = compute_pose_loss_rotmat_quat(
             pred_pose, target_pose
         )
 
@@ -290,7 +234,7 @@ class TrainingPolicyNet(PolicyNet):
         # These are defined here because they need to be set on the correct devices.
         # The easiest way to do this is to do it at call-time
         
-        with torch.amp.autocast("cuda", enabled=False):  # Force FP32 precision
+        with torch.no_grad():
         
             if self.fk_sampler is None:
                 self.fk_sampler = FrankaSampler(self.device, use_cache=True)
@@ -303,6 +247,7 @@ class TrainingPolicyNet(PolicyNet):
             assert self.fk_sampler is not None  # Necessary for mypy to type properly
             
             eff = self.fk_sampler.end_effector_pose(rollout[-1])
+            eff = convert_robotB_to_robotA_torch(eff)  # Convert to robot A frame
             position_error = torch.linalg.vector_norm(
                 eff[:, :3, -1] - batch["target_position"], dim=1
             )
@@ -345,14 +290,12 @@ class TrainingPolicyNet(PolicyNet):
             
             
             # One step bc loss
-            xyz, q, target = (
-                batch["xyz"],
+            q, target = (
                 batch["configuration"],
-                # batch["target_configuration"],
                 batch["target_pose"],
             )
             
-            delta_q = self(xyz, q, target)
+            delta_q = self(q, target)*self.action_scale
             bc_val_loss = self.mse_loss(delta_q, batch["supervision"])
             
             

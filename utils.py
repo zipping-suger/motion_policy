@@ -66,6 +66,45 @@ def convert_robotB_to_robotA(pose_B):
     return T_A
 
 
+def convert_robotB_to_robotA_torch(pose_B: torch.Tensor) -> torch.Tensor:
+    """
+    Converts Robot B's pose (B,4,4) or (4,4) torch tensor to Robot A's convention.
+    Removes the additional tool transformation and compensates for the 180° z-rotation.
+
+    Args:
+        pose_B: (B,4,4) or (4,4) torch tensor from Robot B
+
+    Returns:
+        T_A: (B,4,4) or (4,4) torch tensor in Robot A's convention
+    """
+    if pose_B.ndim == 2:
+        pose_B = pose_B.unsqueeze(0)  # (1,4,4)
+        squeeze_out = True
+    else:
+        squeeze_out = False
+
+    R_B = pose_B[:, :3, :3]  # (B,3,3)
+    p_B = pose_B[:, :3, 3]   # (B,3)
+
+    # Negate first two columns (180° z-rotation compensation)
+    R_A = R_B.clone()
+    R_A[:, :, 0] = -R_A[:, :, 0]
+    R_A[:, :, 1] = -R_A[:, :, 1]
+
+    # Remove tool offset along z-axis
+    w = R_B[:, :, 2]  # (B,3)
+    p_A = p_B - 0.1 * w  # (B,3)
+
+    # Build corrected transformation matrix
+    T_A = torch.eye(4, dtype=pose_B.dtype, device=pose_B.device).unsqueeze(0).repeat(pose_B.size(0), 1, 1)
+    T_A[:, :3, :3] = R_A
+    T_A[:, :3, 3] = p_A
+
+    if squeeze_out:
+        T_A = T_A.squeeze(0)
+    return T_A
+
+
 def _normalize_franka_joints_numpy(
     batch_trajectory: np.ndarray,
     limits: Tuple[float, float] = (-1, 1),
@@ -97,6 +136,40 @@ def _normalize_franka_joints_numpy(
         franka_limits[:, 1] - franka_limits[:, 0]
     ) * (limits[1] - limits[0]) + limits[0]
     return normalized
+
+
+def resolve_nn_activation(act_name: str) -> torch.nn.Module:
+    """Resolves the activation function from the name.
+
+    Args:
+        act_name: The name of the activation function.
+
+    Returns:
+        The activation function.
+
+    Raises:
+        ValueError: If the activation function is not found.
+    """
+    act_dict = {
+        "elu": torch.nn.ELU(),
+        "selu": torch.nn.SELU(),
+        "relu": torch.nn.ReLU(),
+        "crelu": torch.nn.CELU(),
+        "lrelu": torch.nn.LeakyReLU(),
+        "tanh": torch.nn.Tanh(),
+        "sigmoid": torch.nn.Sigmoid(),
+        "softplus": torch.nn.Softplus(),
+        "gelu": torch.nn.GELU(),
+        "swish": torch.nn.SiLU(),
+        "mish": torch.nn.Mish(),
+        "identity": torch.nn.Identity(),
+    }
+
+    act_name = act_name.lower()
+    if act_name in act_dict:
+        return act_dict[act_name]
+    else:
+        raise ValueError(f"Invalid activation function '{act_name}'. Valid activations are: {list(act_dict.keys())}")
 
 
 def _normalize_franka_joints_torch(
@@ -416,3 +489,68 @@ def compute_pose_loss_rotmat(
 
     return position_loss, rotation_loss
 
+
+def quaternion_to_rotation_matrix(quat: torch.Tensor) -> torch.Tensor:
+    """
+    Converts a batch of quaternions to rotation matrices.
+    
+    Args:
+        quat (torch.Tensor): Quaternions in (qw, qx, qy, qz) format (B, 4)
+    
+    Returns:
+        torch.Tensor: Rotation matrices (B, 3, 3)
+    """
+    # Normalize quaternion
+    quat = torch.nn.functional.normalize(quat, p=2, dim=1)
+    
+    qw, qx, qy, qz = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
+    
+    # Compute rotation matrix elements
+    xx, yy, zz = qx * qx, qy * qy, qz * qz
+    xy, xz, yz = qx * qy, qx * qz, qy * qz
+    xw, yw, zw = qx * qw, qy * qw, qz * qw
+
+    # Construct rotation matrix
+    rot_mat = torch.stack([
+        1 - 2 * (yy + zz),     2 * (xy - zw),     2 * (xz + yw),
+        2 * (xy + zw),     1 - 2 * (xx + zz),     2 * (yz - xw),
+        2 * (xz - yw),     2 * (yz + xw),     1 - 2 * (xx + yy)
+    ], dim=1).view(-1, 3, 3)
+    
+    return rot_mat
+
+
+def compute_pose_loss_rotmat_quat(
+    pred_pose: torch.Tensor,
+    target_pose: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Computes position and rotation loss between predicted and target end-effector poses.
+    Uses Chordal distance (squared Frobenius norm) for rotation loss.
+
+    Args:
+        pred_pose (torch.Tensor): Predicted pose (B, 4, 4)
+        target_pose (torch.Tensor): Target pose (B, 7): [x, y, z, qw, qx, qy, qz]
+
+    Returns:
+        position_loss (torch.Tensor): (B,) squared Euclidean position loss
+        rotation_loss (torch.Tensor): (B,) squared Frobenius norm between rotation matrices
+    """
+    # Extract target position and quaternion
+    target_pos = target_pose[:, 0:3]  # (B, 3)
+    target_quat = target_pose[:, 3:7]  # (B, 4)
+    
+    # Convert quaternion to rotation matrix
+    target_rot = quaternion_to_rotation_matrix(target_quat)  # (B, 3, 3)
+    
+    # Extract predicted rotation and translation
+    pred_rot = pred_pose[:, :3, :3]  # (B, 3, 3)
+    pred_pos = pred_pose[:, :3, 3]   # (B, 3)
+    
+    # Position loss (squared Euclidean distance)
+    position_loss = torch.sum((pred_pos - target_pos) ** 2, dim=1)  # (B,)
+    
+    # Rotation loss (Chordal Distance = squared Frobenius norm)
+    rotation_loss = torch.sum((pred_rot - target_rot) ** 2, dim=(1, 2))  # (B,)
+    
+    return position_loss, rotation_loss

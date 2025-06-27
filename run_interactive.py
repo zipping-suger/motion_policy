@@ -12,7 +12,7 @@ from robofin.bullet import BulletController
 from robofin.pointcloud.torch import FrankaSampler
 
 from models.policynet import PolicyNet
-from utils import normalize_franka_joints, unnormalize_franka_joints
+from utils import normalize_franka_joints, unnormalize_franka_joints, convert_robotB_to_robotA_torch
 from data_loader import PointCloudTrajectoryDataset, DatasetType
 from geometry import construct_mixed_point_cloud
 from geometrout.primitive import Cuboid, Cylinder, Sphere
@@ -23,9 +23,10 @@ NUM_OBSTACLE_POINTS = 4096
 NUM_TARGET_POINTS = 128
 MAX_ROLLOUT_LENGTH = 50
 GOAL_THRESHOLD = 0.01  # 1 cm threshold for goal reaching
+ACTION_SCALE = 0.1  # Scale for the action space
 
-model_path = "./checkpoints/dqu9herp/epoch-epoch=2-end.ckpt"
-val_data_path = "./pretrain_data/ompl_table_6k"
+model_path = "./checkpoints/u9hyu6es/last.ckpt"
+val_data_path = "./pretrain_data/ompl_free_8k"
 
 
 def ensure_orthogonal_rotmat_polar(target_rotmat):
@@ -167,7 +168,6 @@ while True:
 
         # Plan and execute trajectory
         with torch.no_grad():
-            xyz = data["xyz"].unsqueeze(0)
             if policy_final_config is None:
                 start_config = data["configuration"]
             else:
@@ -177,21 +177,26 @@ while True:
             
             # Solve Inverse Kinematics to get target configuration
             # Construct the desired end-effector pose as an SE3 object
-            target_xyz = torch.tensor(target_position, dtype=torch.float32, device=xyz.device).unsqueeze(0)  # shape (1, 3)
-            target_rotmat = data["target_rotation"].unsqueeze(0)  # shape (1, 12)
-            target_input = torch.cat([target_xyz, target_rotmat], dim=-1)  # shape (1, 12)
+            target_xyz = torch.tensor(target_position, dtype=torch.float32, device=start_config.device).unsqueeze(0)  # shape (1, 3)
+            # target_rotmat = data["target_rotation"].unsqueeze(0)  # shape (1, 12)
+            # target_input = torch.cat([target_xyz, target_rotmat], dim=-1)  # shape (1, 12)
+            target_quat = data["target_quaternion"].unsqueeze(0)  # shape (1, 4)
+            target_input = torch.cat([target_xyz, target_quat], dim=-1) # shape (1, 7)
 
             trajectory = []
             q = start_config_batched.clone()
             trajectory.append(q.squeeze(0).cpu().numpy())
 
             for i in range(MAX_ROLLOUT_LENGTH):
-                delta_q = model(xyz, q, target_input)
+                delta_q = model(q, target_input)*ACTION_SCALE
                 q = q + delta_q
                 trajectory.append(q.squeeze(0).cpu().numpy())
                 robot_points = gpu_fk_sampler.sample(q, NUM_ROBOT_POINTS)
-                xyz[:, :NUM_ROBOT_POINTS, :3] = robot_points
-                current_position = gpu_fk_sampler.end_effector_pose(q)[:, :3, -1]
+                eff = gpu_fk_sampler.end_effector_pose(q)
+                # Convert to Robot A tool frame
+                eff = convert_robotB_to_robotA_torch(eff)
+                current_position = eff[:, :3, -1]
+                
                 distance_to_target = torch.norm(current_position - data["target_position"].unsqueeze(0), dim=1)
                 if distance_to_target.item() < GOAL_THRESHOLD:
                     print(f"Reached target in {i+1} steps!")
