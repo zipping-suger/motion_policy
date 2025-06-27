@@ -12,3 +12,5 @@ lightning_logs/
 wandb/
 
 cluster/slurm-*.out
+
+*.pth
