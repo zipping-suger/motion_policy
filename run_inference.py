@@ -8,7 +8,7 @@ import meshcat
 import urchin
 from pathlib import Path
 
-from robofin.robots import FrankaRobot, FrankaGripper
+from robofin.robots import FrankaRobot, FrankaRealRobot, FrankaGripper
 from robofin.bullet import BulletController
 from robofin.pointcloud.torch import FrankaSampler
 
@@ -30,8 +30,11 @@ GOAL_THRESHOLD = 0.05  # 5cm threshold for goal reaching
 NUM_DMEO = 10 
 ACTION_SCALE = 0.1  # Scale for the action space
 
-model_path = "./checkpoints/u9hyu6es/epoch=10-step=1463.ckpt"
-val_data_path = "./pretrain_data/ompl_free_8k"
+# model_path = "./checkpoints/697q7qbd/last.ckpt"
+# val_data_path = "./pretrain_data/ompl_cubby_6k"
+
+model_path = "./checkpoints/free_finetuned/epoch=10-step=1463.ckpt"
+val_data_path = "./pretrain_data/ompl2_free_8k"
 
 # model = PolicyNet().to("cuda:0")
 model = PolicyNet.load_from_checkpoint(model_path).cuda()
@@ -89,7 +92,7 @@ for problem_idx in problems_to_visualize:
     print(f"\n======= Visualizing problem {problem_idx} =======")
     
     # Get data for this problem
-    data = dataset[problem_idx + 50]
+    data = dataset[problem_idx+200]
     
     # Extract expert trajectory
     expert_trajectory = get_expert_trajectory(dataset, problem_idx)
@@ -233,7 +236,7 @@ for problem_idx in problems_to_visualize:
     print(f"Policy trajectory: {len(trajectory)} steps")
     
     # Calculate end effector positions for expert final state
-    expert_final_ee = FrankaRobot.fk(expert_trajectory[-1]).xyz
+    expert_final_ee = FrankaRealRobot.fk(expert_trajectory[-1]).xyz
     print(f"Expert final position error: {np.linalg.norm(expert_final_ee - target_position):.4f} m")
     
     # Ask user if they want to see expert trajectory first
@@ -282,7 +285,7 @@ for problem_idx in problems_to_visualize:
     
     # Get final position of policy trajectory and calculate error
     policy_final_config = trajectory[-1]
-    policy_final_ee = FrankaRobot.fk(policy_final_config).xyz
+    policy_final_ee = FrankaRealRobot.fk(policy_final_config).xyz
     print(f"Policy final position error: {np.linalg.norm(policy_final_ee - target_position):.4f} m")
     
     # --- Collision checking for policy trajectory ---

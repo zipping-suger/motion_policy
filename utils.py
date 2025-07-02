@@ -105,6 +105,81 @@ def convert_robotB_to_robotA_torch(pose_B: torch.Tensor) -> torch.Tensor:
     return T_A
 
 
+def convert_robotA_to_robotB(pose_A):
+    """
+    Converts Robot A's pose (4×4 matrix) back to Robot B's convention
+    by re-applying the 180° z-rotation and adding the tool offset.
+
+    Args:
+        pose_A: 4×4 transformation matrix in Robot A's convention
+
+    Returns:
+        T_B: 4×4 transformation matrix in Robot B's convention
+    """
+    # Extract rotation and translation
+    R_A = pose_A[:3, :3]
+    p_A = pose_A[:3, 3]
+
+    # Recompute R_B by undoing the negation of the first two axes:
+    # since R_A = R_B @ diag(-1, -1, 1), we have
+    # R_B = R_A @ diag(-1, -1, 1)  (i.e. negate first two columns)
+    R_B = R_A.copy()
+    R_B[:, 0] = -R_B[:, 0]
+    R_B[:, 1] = -R_B[:, 1]
+    # note: R_B[:,2] remains unchanged
+
+    # Reconstruct p_B by adding back the tool offset along Robot B's z-axis
+    w_B = R_B[:, 2]           # unit z-axis direction of Robot B
+    p_B = p_A + 0.1 * w_B
+
+    # Build full transform
+    T_B = np.eye(4)
+    T_B[:3, :3] = R_B
+    T_B[:3, 3] = p_B
+    return T_B
+
+
+def convert_robotA_to_robotB_torch(pose_A: torch.Tensor) -> torch.Tensor:
+    """
+    Converts Robot A's pose (shape (B,4,4) or (4,4)) back to Robot B's convention
+    by re-applying the 180° z-rotation and adding the tool offset.
+
+    Args:
+        pose_A: torch tensor of shape (B,4,4) or (4,4), in Robot A's convention
+
+    Returns:
+        T_B: torch tensor of same shape, in Robot B's convention
+    """
+    # Ensure batch dimension
+    squeeze_out = False
+    if pose_A.ndim == 2:
+        pose_A = pose_A.unsqueeze(0)
+        squeeze_out = True
+
+    R_A = pose_A[:, :3, :3]  # (B,3,3)
+    p_A = pose_A[:, :3, 3]   # (B,3)
+
+    # Undo the negation on x and y axes:
+    R_B = R_A.clone()
+    R_B[:, :, 0] = -R_B[:, :, 0]
+    R_B[:, :, 1] = -R_B[:, :, 1]
+    # R_B[:, :, 2] stays as-is
+
+    # Add back the tool offset along B's z-axis
+    w_B = R_B[:, :, 2]           # (B,3)
+    p_B = p_A + 0.1 * w_B        # (B,3)
+
+    # Build full transform
+    T_B = torch.eye(4, dtype=pose_A.dtype, device=pose_A.device)\
+            .unsqueeze(0).repeat(pose_A.size(0), 1, 1)
+    T_B[:, :3, :3] = R_B
+    T_B[:, :3, 3] = p_B
+
+    if squeeze_out:
+        T_B = T_B.squeeze(0)
+    return T_B
+
+
 def _normalize_franka_joints_numpy(
     batch_trajectory: np.ndarray,
     limits: Tuple[float, float] = (-1, 1),

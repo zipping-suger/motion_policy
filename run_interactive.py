@@ -7,12 +7,12 @@ from pathlib import Path
 from geometrout.transform import SE3, SO3
 from pyquaternion import Quaternion
 
-from robofin.robots import FrankaRobot, FrankaGripper
+from robofin.robots import FrankaRobot, FrankaRealRobot, FrankaGripper
 from robofin.bullet import BulletController
 from robofin.pointcloud.torch import FrankaSampler
 
 from models.policynet import PolicyNet
-from utils import normalize_franka_joints, unnormalize_franka_joints, convert_robotB_to_robotA_torch
+from utils import normalize_franka_joints, unnormalize_franka_joints, convert_robotB_to_robotA, convert_robotB_to_robotA_torch, convert_robotA_to_robotB
 from data_loader import PointCloudTrajectoryDataset, DatasetType
 from geometry import construct_mixed_point_cloud
 from geometrout.primitive import Cuboid, Cylinder, Sphere
@@ -25,8 +25,10 @@ MAX_ROLLOUT_LENGTH = 50
 GOAL_THRESHOLD = 0.01  # 1 cm threshold for goal reaching
 ACTION_SCALE = 0.1  # Scale for the action space
 
-model_path = "./checkpoints/u9hyu6es/last.ckpt"
-val_data_path = "./pretrain_data/ompl_free_8k"
+# model_path = "./checkpoints/7c5kbz74/last.ckpt"
+# model_path = "./checkpoints/s3zim6i4/last.ckpt"
+model_path = "policy_actor.pth"
+val_data_path = "./pretrain_data/ompl2_free_8k"
 
 
 def ensure_orthogonal_rotmat_polar(target_rotmat):
@@ -41,30 +43,69 @@ def ensure_orthogonal_rotmat_polar(target_rotmat):
     
     return orthogonal_rotmat
 
-def move_target_with_key(target_position, key, step=0.02):
+
+def move_target_with_key(target_pose, key, pos_step=0.02, rot_step=5.0):
     moved = False
+    xyz = np.array(target_pose.xyz)
+    so3 = target_pose.so3
+
+    # Position changes
     if key == ord('w'):
-        target_position[1] += step
+        xyz = xyz + np.array([0, pos_step, 0])
         moved = True
     elif key == ord('s'):
-        target_position[1] -= step
+        xyz = xyz + np.array([0, -pos_step, 0])
         moved = True
     elif key == ord('a'):
-        target_position[0] -= step
+        xyz = xyz + np.array([-pos_step, 0, 0])
         moved = True
     elif key == ord('d'):
-        target_position[0] += step
+        xyz = xyz + np.array([pos_step, 0, 0])
         moved = True
     elif key == ord('q'):
-        target_position[2] += step
+        xyz = xyz + np.array([0, 0, pos_step])
         moved = True
     elif key == ord('e'):
-        target_position[2] -= step
+        xyz = xyz + np.array([0, 0, -pos_step])
         moved = True
-    return moved
+
+    # Orientation changes (in gripper's local frame)
+    elif key in [ord('u'), ord('o'), ord('i'), ord('k'), ord('j'), ord('l')]:
+        rot_step_rad = np.radians(rot_step)
+        R = so3.matrix
+
+        if key == ord('u'):  # Roll +
+            dR = SO3.from_rpy(rot_step_rad, 0, 0).matrix
+        elif key == ord('o'):  # Roll -
+            dR = SO3.from_rpy(-rot_step_rad, 0, 0).matrix
+        elif key == ord('i'):  # Pitch +
+            dR = SO3.from_rpy(0, rot_step_rad, 0).matrix
+        elif key == ord('k'):  # Pitch -
+            dR = SO3.from_rpy(0, -rot_step_rad, 0).matrix
+        elif key == ord('j'):  # Yaw +
+            dR = SO3.from_rpy(0, 0, rot_step_rad).matrix
+        elif key == ord('l'):  # Yaw -
+            dR = SO3.from_rpy(0, 0, -rot_step_rad).matrix
+
+        R_new = R @ dR
+        R_new_ortho = ensure_orthogonal_rotmat_polar(R_new)
+        so3 = SO3(Quaternion(matrix=R_new_ortho))
+        moved = True
+
+    if moved:
+        target_pose = SE3(xyz=xyz, so3=so3)
+    return moved, target_pose
 
 
-model = PolicyNet.load_from_checkpoint(model_path).cuda()
+# Check the model path, if it's ckpt
+# Load the model (supports both .ckpt and .pth)
+if model_path.endswith(".ckpt"):
+    model = PolicyNet.load_from_checkpoint(model_path).cuda()
+else:
+    model = PolicyNet()
+    model.policy.load_state_dict(torch.load(model_path))
+    model = model.cuda()
+
 model.eval()
 
 cpu_fk_sampler = FrankaSampler("cpu", use_cache=True)
@@ -83,7 +124,7 @@ dataset = PointCloudTrajectoryDataset(
     DatasetType.VAL
 )
 
-problem_idx = 10
+problem_idx = 1
 print(f"\n======= Visualizing problem {problem_idx} =======")
 data = dataset[problem_idx]
 for key in data:
@@ -124,16 +165,15 @@ franka.marionette(data["configuration"].cpu().numpy())
 # Initial target robot configuration
 target_franka = sim.load_robot(FrankaGripper, collision_free=True)
 target_config = data["target_configuration"].cpu().numpy().copy()
-target_pose = FrankaRobot.fk(target_config)
-target_franka.marionette(target_pose)
-target_position = target_pose.xyz
+target_pose = FrankaRealRobot.fk(target_config)
+mat = convert_robotA_to_robotB(target_pose.matrix)
+target_pose_se3 = SE3(matrix=mat)
+target_franka.marionette(target_pose_se3)
 
-# Initial target position
-target_position = data["target_position"].cpu().numpy()
 
-print("Use WASD (XY), QE (Z) to move target. Press SPACE to plan and execute. Press ESC to quit.")
-
-print("Use WASD (XY), QE (Z) to move target. Press SPACE to plan and execute. Press ESC to quit.")
+print("Use WASD (XY), QE (Z) to move position.")
+print("Use U/O (roll), I/K (pitch), J/L (yaw) to rotate gripper.")
+print("Press SPACE to plan and execute. Press ESC to quit.")
 
 # Dummy OpenCV window (required for key input)
 cv2.namedWindow("Control", cv2.WINDOW_NORMAL)
@@ -143,14 +183,10 @@ cv2.imshow("Control", np.zeros((100, 200), dtype=np.uint8))
 policy_final_config = None  # To store the final configuration after policy execution
 
 while True:
-    key = cv2.waitKey(30) & 0xFF  # Non-blocking key press check
-    moved = move_target_with_key(target_position, key)
+    key = cv2.waitKey(30) & 0xFF
+    moved, target_pose = move_target_with_key(target_pose, key)
     if moved:
-        target_xyz = target_position  # (x, y, z)
-        print("Targt pose", target_pose)
-        # Use the rotation part from target_pose (which is an SE3 object)
-        mat = target_pose.matrix
-        mat[:3, 3] = target_xyz  # Update translation part
+        mat = convert_robotA_to_robotB(target_pose.matrix)
         target_pose_se3 = SE3(matrix=mat)
         target_franka.marionette(target_pose_se3)
 
@@ -162,9 +198,6 @@ while True:
         break
     elif key == 32:  # SPACE
         print("Planning and executing trajectory...")
-        # Update data with new target position
-        data["target_position"] = torch.tensor(target_position, dtype=torch.float32).cuda()
-        # Optionally update target_pose/target_config if needed
 
         # Plan and execute trajectory
         with torch.no_grad():
@@ -177,10 +210,10 @@ while True:
             
             # Solve Inverse Kinematics to get target configuration
             # Construct the desired end-effector pose as an SE3 object
-            target_xyz = torch.tensor(target_position, dtype=torch.float32, device=start_config.device).unsqueeze(0)  # shape (1, 3)
+            target_xyz = torch.tensor(target_pose.xyz, dtype=torch.float32, device=start_config.device).unsqueeze(0)  # shape (1, 3)
             # target_rotmat = data["target_rotation"].unsqueeze(0)  # shape (1, 12)
             # target_input = torch.cat([target_xyz, target_rotmat], dim=-1)  # shape (1, 12)
-            target_quat = data["target_quaternion"].unsqueeze(0)  # shape (1, 4)
+            target_quat = torch.tensor(Quaternion(matrix=target_pose.matrix).elements, dtype=torch.float32, device=start_config.device).unsqueeze(0)
             target_input = torch.cat([target_xyz, target_quat], dim=-1) # shape (1, 7)
 
             trajectory = []
@@ -197,7 +230,7 @@ while True:
                 eff = convert_robotB_to_robotA_torch(eff)
                 current_position = eff[:, :3, -1]
                 
-                distance_to_target = torch.norm(current_position - data["target_position"].unsqueeze(0), dim=1)
+                distance_to_target = torch.norm(current_position - target_xyz, dim=1)
                 if distance_to_target.item() < GOAL_THRESHOLD:
                     print(f"Reached target in {i+1} steps!")
                     break
@@ -214,8 +247,15 @@ while True:
 
         # Get final position of policy trajectory and calculate error
         policy_final_config = trajectory[-1]
-        policy_final_ee = FrankaRobot.fk(policy_final_config).xyz
-        print(f"Policy final position error: {np.linalg.norm(policy_final_ee - target_position):.4f} m")
+        policy_final_ee = FrankaRealRobot.fk(policy_final_config)
+        policy_final_ee = SE3(matrix=convert_robotB_to_robotA(policy_final_ee.matrix))
+        # Ensure both are numpy arrays for subtraction
+        final_xyz = np.asarray(policy_final_ee.xyz)
+        target_xyz_np = np.asarray(target_pose.xyz)
+        position_error = np.linalg.norm(final_xyz - target_xyz_np)
+        print(
+            f"Policy final position error: {position_error:.4f} m"
+        )
 
         # Extra time to view final pose
         for _ in range(10):
