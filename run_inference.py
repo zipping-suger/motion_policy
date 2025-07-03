@@ -13,19 +13,20 @@ from robofin.bullet import BulletController
 from robofin.pointcloud.torch import FrankaSampler
 
 from models.policynet import PolicyNet
-from utils import normalize_franka_joints, unnormalize_franka_joints, convert_robotB_to_robotA_torch
+from utils import normalize_franka_joints, unnormalize_franka_joints, convert_robotB_to_robotA_torch, convert_robotA_to_robotB
 from data_loader import PointCloudTrajectoryDataset, DatasetType
 from geometry import construct_mixed_point_cloud
 from geometrout.primitive import Cuboid, Cylinder, Sphere
 from robofin.pointcloud.torch import FrankaCollisionSampler
 from geometry import TorchCuboids, TorchCylinders
+from geometrout.transform import SE3, SO3
 
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 NUM_TARGET_POINTS = 128
 MAX_ROLLOUT_LENGTH = 50
 # Set this flag to True to always show expert trajectory, False to skip
-SHOW_EXPERT_TRAJ = True
+SHOW_EXPERT_TRAJ = False
 GOAL_THRESHOLD = 0.05  # 5cm threshold for goal reaching
 NUM_DMEO = 10 
 ACTION_SCALE = 0.1  # Scale for the action space
@@ -33,8 +34,9 @@ ACTION_SCALE = 0.1  # Scale for the action space
 # model_path = "./checkpoints/697q7qbd/last.ckpt"
 # val_data_path = "./pretrain_data/ompl_cubby_6k"
 
-model_path = "./checkpoints/free_finetuned/epoch=10-step=1463.ckpt"
-val_data_path = "./pretrain_data/ompl2_free_8k"
+model_path = "./checkpoints/rn4kshhq/last.ckpt"
+val_data_path = "./pretrain_data/cubby_16k"
+
 
 # model = PolicyNet().to("cuda:0")
 model = PolicyNet.load_from_checkpoint(model_path).cuda()
@@ -92,7 +94,7 @@ for problem_idx in problems_to_visualize:
     print(f"\n======= Visualizing problem {problem_idx} =======")
     
     # Get data for this problem
-    data = dataset[problem_idx+200]
+    data = dataset[problem_idx]
     
     # Extract expert trajectory
     expert_trajectory = get_expert_trajectory(dataset, problem_idx)
@@ -204,9 +206,17 @@ for problem_idx in problems_to_visualize:
     obstacle_pc = obstacle_points[:, :3]  # Extract XYZ
     
     # Visualize target position with a small red sphere 
-    target_position = data["target_position"].cpu().numpy()
-    target_marker = Sphere(center=target_position, radius=0.05)
+    # target_position = data["target_position"].cpu().numpy()
+    # target_marker = Sphere(center=target_position, radius=0.05)
+    # sim.load_sphere(target_marker, color=[1, 0, 0, 1], visual_only=True)
+    
+    target_config = data["target_configuration"].cpu().numpy().copy()
+    target_pose = FrankaRealRobot.fk(target_config)
+    mat = convert_robotA_to_robotB(target_pose.matrix)
+    target_pose_se3 = SE3(matrix=mat)
+    target_marker = Sphere(center=target_pose_se3.xyz, radius=0.05)
     sim.load_sphere(target_marker, color=[1, 0, 0, 1], visual_only=True)
+    
     
     # Create color array for points (green for obstacles)
     point_cloud_colors = np.zeros((3, obstacle_pc.shape[0]))

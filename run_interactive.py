@@ -27,9 +27,13 @@ ACTION_SCALE = 0.1  # Scale for the action space
 
 # model_path = "./checkpoints/7c5kbz74/last.ckpt"
 # model_path = "./checkpoints/s3zim6i4/last.ckpt"
-model_path = "policy_actor.pth"
-val_data_path = "./pretrain_data/ompl2_free_8k"
+# model_path = "policy_actor.pth"
+# val_data_path = "./pretrain_data/ompl2_free_8k"
 
+model_path = "./checkpoints/rn4kshhq/last.ckpt"
+val_data_path = "./pretrain_data/cubby_16k"
+
+problem_idx = 10
 
 def ensure_orthogonal_rotmat_polar(target_rotmat):
     target_rotmat = target_rotmat.reshape(3, 3)
@@ -124,7 +128,7 @@ dataset = PointCloudTrajectoryDataset(
     DatasetType.VAL
 )
 
-problem_idx = 1
+
 print(f"\n======= Visualizing problem {problem_idx} =======")
 data = dataset[problem_idx]
 for key in data:
