@@ -18,7 +18,7 @@ from data_loader import DataModule
 
 
 def import_training_policy_net(mode):
-    if mode == "finetune":
+    if mode == "finetune" or mode == "finetune_tasks":
         from models.policynet_opt import TrainingPolicyNet
     elif mode == "pretrain":
         from models.policynet import TrainingPolicyNet
@@ -194,7 +194,7 @@ def run():
         **(config["training_model_parameters"] or {}),
     )
     
-    if mode == "finetune":
+    if mode == "finetune" or mode == "finetune_tasks":
         model_path = config["model_path"]
         print(f"Loading model from {model_path}")
         mdl = TrainingPolicyNet.load_from_checkpoint(

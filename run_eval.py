@@ -28,6 +28,7 @@ def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
         NUM_OBSTACLE_POINTS,
         NUM_TARGET_POINTS,
         DatasetType.VAL
+        random_scale=0.0,  # No random scaling for evaluation
     )
 
     # Initialize samplers

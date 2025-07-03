@@ -112,15 +112,8 @@ class TrainingPolicyNet(PolicyNet):
         """
         assert len(rollout) > 0, "Rollout must contain at least one configuration"
 
-        # Goal reaching loss
-        target_configuration = batch["target_configuration"]
-        last_configuration = rollout[-1]
-        assert last_configuration.shape == target_configuration.shape, (
-            f"Last configuration shape {last_configuration.shape} does not match "
-            f"target configuration shape {target_configuration.shape}"
-        )
-        
         # Goal reaching loss in end-effector space
+        last_configuration = rollout[-1]
         pred_pose = self.fk_sampler.end_effector_pose(last_configuration)  # (B,4,4)
         # Covert to robot A frame
         pred_pose = convert_robotB_to_robotA_torch(pred_pose)
@@ -202,11 +195,11 @@ class TrainingPolicyNet(PolicyNet):
             rollout, batch
         )
         
-        self.log("train_loss", train_loss, on_epoch=True)
-        self.log("goal_loss", goal_loss, on_epoch=True)
-        self.log("colli_loss", colli_loss, on_epoch=True)
-        self.log("position_loss", position_loss, on_epoch=True)
-        self.log("rotation_loss", rotation_loss, on_epoch=True)
+        self.log("train_loss", train_loss)
+        self.log("goal_loss", goal_loss)
+        self.log("colli_loss", colli_loss)
+        self.log("position_loss", position_loss)
+        self.log("rotation_loss", rotation_loss)
         return train_loss
 
     def sample(self, q: torch.Tensor) -> torch.Tensor:
@@ -288,21 +281,9 @@ class TrainingPolicyNet(PolicyNet):
 
             avg_collision_rate = torch.count_nonzero(has_collision) / B
             
-            
-            # One step bc loss
-            q, target = (
-                batch["configuration"],
-                batch["target_pose"],
-            )
-            
-            delta_q = self(q, target)*self.action_scale
-            bc_val_loss = self.mse_loss(delta_q, batch["supervision"])
-            
-            
             result = {
                 "avg_target_error": avg_target_error,
                 "avg_collision_rate": avg_collision_rate,
-                "bc_val_loss": bc_val_loss,
             }
             self.validation_step_outputs.append(result)
             return result
@@ -317,10 +298,5 @@ class TrainingPolicyNet(PolicyNet):
             torch.stack([x["avg_collision_rate"] for x in self.validation_step_outputs])
         )
         self.log("avg_collision_rate", avg_collision_rate)
-        
-        bc_val_loss = torch.mean(
-            torch.stack([x["bc_val_loss"] for x in self.validation_step_outputs])
-        )
-        self.log("bc_val_loss", bc_val_loss)
-        
+                
         self.validation_step_outputs.clear()

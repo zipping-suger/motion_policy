@@ -76,6 +76,7 @@ dataset = PointCloudTrajectoryDataset(
     NUM_OBSTACLE_POINTS, 
     NUM_TARGET_POINTS,
     DatasetType.VAL
+    random_scale=0.0
 )
 
 def get_expert_trajectory(dataset, idx):

@@ -25,12 +25,13 @@ MAX_ROLLOUT_LENGTH = 50
 GOAL_THRESHOLD = 0.01  # 1 cm threshold for goal reaching
 ACTION_SCALE = 0.1  # Scale for the action space
 
-# model_path = "./checkpoints/7c5kbz74/last.ckpt"
-# model_path = "./checkpoints/s3zim6i4/last.ckpt"
+# model_path = "./checkpoints/free2_pretrain/last.ckpt"
+# model_path = "./checkpoints/free2_finetune/last.ckpt"
 # model_path = "policy_actor.pth"
 # val_data_path = "./pretrain_data/ompl2_free_8k"
 
-model_path = "./checkpoints/rn4kshhq/last.ckpt"
+# model_path = "./checkpoints/rn4kshhq/last.ckpt"
+model_path = "./checkpoints/single_cubby_finetuned/last.ckpt"
 val_data_path = "./pretrain_data/cubby_16k"
 
 problem_idx = 10
@@ -119,13 +120,22 @@ sim = BulletController(hz=12, substeps=20, gui=True)
 franka = sim.load_robot(FrankaRobot)
 gripper = sim.load_robot(FrankaGripper, collision_free=True)
 
+# Set the camera position using the new method signature
+sim.set_camera_position(
+    yaw=-90,           # degrees
+    pitch=-30,        # degrees
+    distance=2.5,     # meters
+    target=[0.0, 0.0, 0.5]
+)
+
 dataset = PointCloudTrajectoryDataset(
     Path(val_data_path), 
     "global_solutions", 
     NUM_ROBOT_POINTS, 
     NUM_OBSTACLE_POINTS, 
     NUM_TARGET_POINTS,
-    DatasetType.VAL
+    DatasetType.VAL,
+    random_scale=0.0
 )
 
 

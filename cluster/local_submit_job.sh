@@ -31,7 +31,7 @@ cd $HOME
 cd motion_policy
 ulimit -n 4096  
 wandb login e69097b8c1bd646d9218e652823487632097445d
-python run_training.py configs/train_cfg.yaml 
+python run_training.py configs/train_cfg_opt_tasks.yaml 
 EOT
 
 echo "Submitting job to SLURM..."
