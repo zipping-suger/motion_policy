@@ -35,7 +35,7 @@ class PolicyNet(pl.LightningModule):
         """
         A standard method in PyTorch lightning to set the optimizer
         """
-        optimizer = torch.optim.Adam(self.parameters(), lr=3e-4, weight_decay=0.01)
+        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
         return optimizer
 
     def forward(self, q: torch.Tensor, target: torch.Tensor) -> torch.Tensor:  # type: ignore[override]

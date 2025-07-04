@@ -23,4 +23,4 @@ accelerator: "gpu"
 gpu_num: 1  # If > 1, PyTorch Lightning will automatically use DDP for training
 batch_size: 128
 save_checkpoint_dir: "./checkpoints"
-experiment_name: single_cubby_tasks135k_b128_opt_decay_weight
+experiment_name: single_cubby_tasks135k_b128_opt_lr1e-3
