@@ -3,7 +3,7 @@ train_mode: "finetune_tasks"  # "pretrain" or "fine-tune"
 training_model_parameters:
     pc_latent_dim: 2048
     goal_loss_weight: 1
-    collision_loss_weight: 10
+    collision_loss_weight: 20
     action_scale: 0.1  # Scale for the action space
 
 data_module_parameters:
@@ -23,4 +23,4 @@ accelerator: "gpu"
 gpu_num: 1  # If > 1, PyTorch Lightning will automatically use DDP for training
 batch_size: 128
 save_checkpoint_dir: "./checkpoints"
-experiment_name: single_cubby_tasks135k_b128_opt_lower_collision_loss
+experiment_name: single_cubby_tasks135k_b128_opt_lower_learning_rate
