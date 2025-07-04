@@ -31,10 +31,12 @@ ACTION_SCALE = 0.1  # Scale for the action space
 # val_data_path = "./pretrain_data/ompl2_free_8k"
 
 # model_path = "./checkpoints/rn4kshhq/last.ckpt"
-model_path = "./checkpoints/single_cubby_finetuned/last.ckpt"
-val_data_path = "./pretrain_data/cubby_16k"
+# model_path = "./checkpoints/single_cubby_finetuned/last.ckpt"
+model_path = "./checkpoints/n15mdb71/last.ckpt"  # single_cubby_tasks_finetuned
+val_data_path = "./pretrain_data/single_cubby_17k"
 
-problem_idx = 10
+problem_idx = 1
+
 
 def ensure_orthogonal_rotmat_polar(target_rotmat):
     target_rotmat = target_rotmat.reshape(3, 3)

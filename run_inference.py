@@ -34,8 +34,8 @@ ACTION_SCALE = 0.1  # Scale for the action space
 # model_path = "./checkpoints/697q7qbd/last.ckpt"
 # val_data_path = "./pretrain_data/ompl_cubby_6k"
 
-model_path = "./checkpoints/rn4kshhq/last.ckpt"
-val_data_path = "./pretrain_data/cubby_16k"
+model_path = "./checkpoints/n15mdb71/last.ckpt"
+val_data_path = "./pretrain_data/single_cubby_17k"
 
 
 # model = PolicyNet().to("cuda:0")
@@ -75,9 +75,10 @@ dataset = PointCloudTrajectoryDataset(
     NUM_ROBOT_POINTS, 
     NUM_OBSTACLE_POINTS, 
     NUM_TARGET_POINTS,
-    DatasetType.VAL
+    DatasetType.VAL,
     random_scale=0.0
 )
+
 
 def get_expert_trajectory(dataset, idx):
     """Extract the expert trajectory for a given problem index from the dataset."""

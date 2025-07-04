@@ -14,6 +14,7 @@ NUM_TARGET_POINTS = 128
 MAX_STEPS = 50 
 GOAL_THRESHOLD = 0.05  # 5cm threshold
 
+
 def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
     """Evaluate the model on the validation dataset."""
     # Load model
@@ -27,7 +28,7 @@ def run_eval(model_path: str, val_data_path: str, num_val: int = 100) -> None:
         NUM_ROBOT_POINTS,
         NUM_OBSTACLE_POINTS,
         NUM_TARGET_POINTS,
-        DatasetType.VAL
+        DatasetType.VAL,
         random_scale=0.0,  # No random scaling for evaluation
     )
 

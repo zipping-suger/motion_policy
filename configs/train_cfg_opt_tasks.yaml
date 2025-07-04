@@ -3,7 +3,7 @@ train_mode: "finetune_tasks"  # "pretrain" or "fine-tune"
 training_model_parameters:
     pc_latent_dim: 2048
     goal_loss_weight: 1
-    collision_loss_weight: 20
+    collision_loss_weight: 10
     action_scale: 0.1  # Scale for the action space
 
 data_module_parameters:
@@ -16,7 +16,7 @@ data_module_parameters:
 shared_parameters:
     num_robot_points: 2048
 
-model_path: "./checkpoints/rn4kshhq/last.ckpt"
+model_path: "./checkpoints/n15mdb71/last.ckpt"
 checkpoint_interval: 10
 validation_interval: 10
 accelerator: "gpu"
