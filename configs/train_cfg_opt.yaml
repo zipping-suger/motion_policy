@@ -16,7 +16,7 @@ data_module_parameters:
 shared_parameters:
     num_robot_points: 2048
 
-model_path: "./checkpoints/rn4kshhq/last.ckpt"
+model_path: null #"./checkpoints/rn4kshhq/last.ckpt"
 checkpoint_interval: 10
 validation_interval: 10
 accelerator: "gpu"
