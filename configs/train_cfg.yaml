@@ -7,7 +7,7 @@ training_model_parameters:
     action_scale: 0.1  # Scale for the action space
 
 data_module_parameters:
-  data_dir: "./pretrain_data/single_cubby_pretrain_ompl_cubby_6k"
+  data_dir: "./pretrain_data/ompl_cubby_6k"
   trajectory_key: 'global_solutions' # Could also use 'global_solutions' for the global expert
   num_obstacle_points: 4096
   num_target_points: 128
