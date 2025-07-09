@@ -37,7 +37,7 @@ ACTION_SCALE = 0.1  # Scale for the action space
 # model_path = "./checkpoints/n15mdb71/last.ckpt"
 # val_data_path = "./pretrain_data/single_cubby_17k"
 
-model_path = "./checkpoints/973jtda1/last.ckpt"
+model_path = "./checkpoints/whfoy34g/last.ckpt"
 val_data_path = "./pretrain_data/single_cubby_pretrain_8k"
 
 
