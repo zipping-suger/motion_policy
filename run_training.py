@@ -18,7 +18,7 @@ from data_loader import DataModule
 
 
 def import_training_policy_net(mode):
-    if mode == "finetune":
+    if mode == "finetune" or mode == "finetune_tasks":
         from models.policynet_opt import TrainingPolicyNet
     elif mode == "pretrain":
         from models.policynet import TrainingPolicyNet
@@ -193,31 +193,19 @@ def run():
         **(config["shared_parameters"] or {}),
         **(config["training_model_parameters"] or {}),
     )
-    
-    if mode == "finetune":
-        model_path = config["model_path"]
-        print(f"Loading model from {model_path}")
-        mdl = TrainingPolicyNet.load_from_checkpoint(
-            model_path,
+    if config["model_path"] is None:
+        print("Training from scratch")
+        mdl = TrainingPolicyNet(
             **(config["shared_parameters"] or {}),
             **(config["training_model_parameters"] or {}),
         )
-    elif mode == "pretrain":
-        if config["model_path"] is None:
-            print("Training from scratch")
-            mdl = TrainingPolicyNet(
-                **(config["shared_parameters"] or {}),
-                **(config["training_model_parameters"] or {}),
-            )
-        else:
-            print(f"Loading model from {config['model_path']}")
-            mdl = TrainingPolicyNet.load_from_checkpoint(
-                config["model_path"],
-                **(config["shared_parameters"] or {}),
-                **(config["training_model_parameters"] or {}),
-            )
     else:
-        raise ValueError(f"Unknown training mode: {mode}. Expected 'finetune' or 'pretrain'.")
+        print(f"Loading model from {config['model_path']}")
+        mdl = TrainingPolicyNet.load_from_checkpoint(
+            config["model_path"],
+            **(config["shared_parameters"] or {}),
+            **(config["training_model_parameters"] or {}),
+        )
     
     if logger is not None:
         logger.watch(mdl, log="gradients", log_freq=10)

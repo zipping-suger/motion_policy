@@ -19,11 +19,6 @@ class PolicyNet(pl.LightningModule):
         """
         super().__init__()
         self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
-        # self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
-        
-        # NOTE: There is a issue with sponv with fp16 validation
-        # Either set the precision to 32 in run_training.py
-        # or force the precision to 32 in validation_step in policynet.py
         
         self.config_encoder = nn.Sequential(
             nn.Linear(7, 32),
@@ -231,10 +226,7 @@ class TrainingPolicyNet(PolicyNet):
         :rtype torch.Tensor: The loss values which are to be collected into summary stats
         """
 
-        # These are defined here because they need to be set on the correct devices.
-        # The easiest way to do this is to do it at call-time
-        
-        with torch.amp.autocast("cuda", enabled=False):  # Force FP32 precision
+        with torch.no_grad():
         
             if self.fk_sampler is None:
                 self.fk_sampler = FrankaSampler(self.device, use_cache=True)
@@ -242,7 +234,7 @@ class TrainingPolicyNet(PolicyNet):
                 self.collision_sampler = FrankaCollisionSampler(
                     self.device, with_base_link=False
                 )
-            rollout = self.rollout(batch, 54, self.sample)
+            rollout = self.rollout(batch, 49, self.sample)
 
             assert self.fk_sampler is not None  # Necessary for mypy to type properly
             
@@ -268,7 +260,7 @@ class TrainingPolicyNet(PolicyNet):
             rollout = torch.stack(rollout, dim=1)
             # Here is some Pytorch broadcasting voodoo to calculate whether each
             # rollout has a collision or not (looking to calculate the collision rate)
-            assert rollout.shape == (B, 55, 7)
+            assert rollout.shape == (B, 50, 7)
             rollout = rollout.reshape(-1, 7)
             has_collision = torch.zeros(B, dtype=torch.bool, device=self.device)
             collision_spheres = self.collision_sampler.compute_spheres(rollout)
@@ -279,7 +271,7 @@ class TrainingPolicyNet(PolicyNet):
                     cuboids.sdf_sequence(sphere_sequence),
                     cylinders.sdf_sequence(sphere_sequence),
                 )
-                assert sdf_values.shape == (B, 55, num_spheres)
+                assert sdf_values.shape == (B, 50, num_spheres)
                 radius_collisions = torch.any(
                     sdf_values.reshape((sdf_values.size(0), -1)) <= radius, dim=-1
                 )
@@ -292,7 +284,6 @@ class TrainingPolicyNet(PolicyNet):
             xyz, q, target = (
                 batch["xyz"],
                 batch["configuration"],
-                # batch["target_configuration"],
                 batch["target_pose"],
             )
             

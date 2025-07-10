@@ -23,11 +23,6 @@ class PolicyNet(pl.LightningModule):
         """
         super().__init__()
         self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
-        # self.point_cloud_encoder = PointTransformerNet(feature_dim=pc_latent_dim) # Point Transformer V3
-        
-        # NOTE: There is a issue with sponv with fp16 validation
-        # Either set the precision to 32 in run_training.py
-        # or force the precision to 32 in validation_step in policynet.py
         
         # Not Update the point cloud encoder during the fine-tuning
         for param in self.point_cloud_encoder.parameters():
@@ -258,11 +253,11 @@ class TrainingPolicyNet(PolicyNet):
             rollout, batch
         )
         
-        self.log("train_loss", train_loss, on_epoch=True)
-        self.log("goal_loss", goal_loss, on_epoch=True)
-        self.log("colli_loss", colli_loss, on_epoch=True)
-        self.log("position_loss", position_loss, on_epoch=True)
-        self.log("rotation_loss", rotation_loss, on_epoch=True)
+        self.log("train_loss", train_loss)
+        self.log("goal_loss", goal_loss)
+        self.log("colli_loss", colli_loss)
+        self.log("position_loss", position_loss)
+        self.log("rotation_loss", rotation_loss)
         return train_loss
 
     def sample(self, q: torch.Tensor) -> torch.Tensor:
@@ -342,24 +337,10 @@ class TrainingPolicyNet(PolicyNet):
                 has_collision = torch.logical_or(radius_collisions, has_collision)
 
             avg_collision_rate = torch.count_nonzero(has_collision) / B
-            
-            
-            # One step bc loss
-            xyz, q, target = (
-                batch["xyz"],
-                batch["configuration"],
-                # batch["target_configuration"],
-                batch["target_pose"],
-            )
-            
-            delta_q = self(xyz, q, target)
-            bc_val_loss = self.mse_loss(delta_q, batch["supervision"])
-            
-            
+                        
             result = {
                 "avg_target_error": avg_target_error,
                 "avg_collision_rate": avg_collision_rate,
-                "bc_val_loss": bc_val_loss,
             }
             self.validation_step_outputs.append(result)
             return result
@@ -374,10 +355,5 @@ class TrainingPolicyNet(PolicyNet):
             torch.stack([x["avg_collision_rate"] for x in self.validation_step_outputs])
         )
         self.log("avg_collision_rate", avg_collision_rate)
-        
-        bc_val_loss = torch.mean(
-            torch.stack([x["bc_val_loss"] for x in self.validation_step_outputs])
-        )
-        self.log("bc_val_loss", bc_val_loss)
         
         self.validation_step_outputs.clear()
