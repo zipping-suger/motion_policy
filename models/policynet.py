@@ -8,6 +8,7 @@ from geometry import TorchCuboids, TorchCylinders
 from robofin.robots import FrankaRealRobot
 from robofin.pointcloud.torch import FrankaSampler, FrankaCollisionSampler
 
+
 class PolicyNet(pl.LightningModule):
     """
     The architecture laid out here is the default architecture laid out in the

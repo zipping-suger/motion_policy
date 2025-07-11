@@ -35,10 +35,10 @@ class PCNEncoder(pl.LightningModule):
             nn.Linear(512, 1024),
             nn.GroupNorm(16, 1024),
             nn.LeakyReLU(inplace=True),
-            nn.Linear(1024, 2048),
-            nn.GroupNorm(16, 2048),
+            nn.Linear(1024, pc_latent_dim),
+            nn.GroupNorm(16, pc_latent_dim),
             nn.LeakyReLU(inplace=True),
-            nn.Linear(2048, 2048),
+            nn.Linear(pc_latent_dim, pc_latent_dim),
         )
         
 
@@ -80,6 +80,10 @@ class PCNEncoder(pl.LightningModule):
 if __name__ == "__main__":
     B, N = 8, 2048
     xyzf = torch.rand(B, N, 4)
-    encoder = PCNEncoder()
+    encoder = PCNEncoder(pc_latent_dim=2048)
     out = encoder(xyzf)
+    # Show model architecture and summary and size
+    print(encoder)
+    total_params = sum(p.numel() for p in encoder.parameters())
+    print(f"Total parameters: {total_params}")
     print(f"Output shape: {out.shape}")  # Should be (B, latent_dim)

@@ -10,8 +10,8 @@ from robofin.pointcloud.torch import FrankaSampler, FrankaCollisionSampler
 
 
 ROLLOUT_LENGTH = 49  # The trajectory length will be ROLLOUT_LENGTH + 1
- 
-    
+
+
 class PolicyNet(pl.LightningModule):
     """
     The architecture laid out here is the default architecture laid out in the
@@ -285,7 +285,7 @@ class TrainingPolicyNet(PolicyNet):
         # These are defined here because they need to be set on the correct devices.
         # The easiest way to do this is to do it at call-time
         
-        with torch.amp.autocast("cuda", enabled=False):  # Force FP32 precision
+        with torch.no_grad():
         
             if self.fk_sampler is None:
                 self.fk_sampler = FrankaSampler(self.device, use_cache=True)

@@ -769,6 +769,7 @@ class DataModule(pl.LightningDataModule):
                 self.trajectory_key,
                 self.num_robot_points,
                 self.num_obstacle_points,
+                self.num_target_points,
                 dataset_type=DatasetType.TEST,
                 random_scale=self.random_scale,
             )
