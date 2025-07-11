@@ -20,4 +20,4 @@ accelerator: "gpu"
 gpu_num: 1  # If > 1, PyTorch Lightning will automatically use DDP for training
 batch_size: 16
 save_checkpoint_dir: "./checkpoints"
-experiment_name: encoder_pn_cubby_6k_predict_min_dist
+experiment_name: encoder_pn_cubby_6k_predict_disable_layernorm

@@ -17,12 +17,13 @@ class EncoderNet(pl.LightningModule):
         Constructs the model
         """
         super().__init__()
-        self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
+        # self.point_cloud_encoder = PCNEncoder(pc_latent_dim)  # Point Cloud Network
+        self.point_cloud_encoder = PCEncoder(pc_latent_dim)  # Point Cloud Encoder
         
         self.links_dist_decoder = nn.Sequential(
             nn.Linear(pc_latent_dim, 256),
             nn.LeakyReLU(inplace=True),
-            nn.Linear(256, 1),  # Output for delta q
+            nn.Linear(256, 7),  # Output for delta q
         )
 
     def configure_optimizers(self):
@@ -33,7 +34,7 @@ class EncoderNet(pl.LightningModule):
         return optimizer
 
     def forward(self, xyz: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
-        pc_encoding = self.point_cloud_encoder(xyz)
+        pc_encoding = self.point_cloud_encoder(xyz)  # xyz: (B, N, 4), last dimension is feature 0 for robot, 1 for obstacle
         return self.links_dist_decoder(pc_encoding)   
 
 
@@ -80,21 +81,9 @@ class TrainingEncoderNet(EncoderNet):
         if self.fk_sampler is None:
             self.fk_sampler = utils.FrankaSampler(self.device, use_cache=True)
         
-        # links_pc = self.fk_sampler.sample_per_link(q)
-        # ground_truth_links_dist = links_obs_dist(
-        #     links_pc,
-        #     cuboid_centers,
-        #     cuboid_dims,
-        #     cuboid_quats,
-        #     cylinder_centers,
-        #     cylinder_radii,
-        #     cylinder_heights,
-        #     cylinder_quats,
-        # )
-        
-        input_pc = self.fk_sampler.sample(q, self.num_robot_points)
-        ground_truth_min_dist = minimal_collision_distance(
-            input_pc,
+        links_pc = self.fk_sampler.sample_per_link(q)
+        ground_truth_links_dist = links_obs_dist(
+            links_pc,
             cuboid_centers,
             cuboid_dims,
             cuboid_quats,
@@ -104,8 +93,20 @@ class TrainingEncoderNet(EncoderNet):
             cylinder_quats,
         )
         
-        # train_loss = self.loss_fun(pred_links_dist, ground_truth_min_dist)
-        train_loss = self.loss_fun(pred_links_dist.squeeze(-1), ground_truth_min_dist)
+        # input_pc = self.fk_sampler.sample(q, self.num_robot_points)
+        # ground_truth_min_dist = minimal_collision_distance(
+        #     input_pc,
+        #     cuboid_centers,
+        #     cuboid_dims,
+        #     cuboid_quats,
+        #     cylinder_centers,
+        #     cylinder_radii,
+        #     cylinder_heights,
+        #     cylinder_quats,
+        # )
+        
+        train_loss = self.loss_fun(pred_links_dist, ground_truth_links_dist)
+        # train_loss = self.loss_fun(pred_links_dist.squeeze(-1), ground_truth_min_dist)
         self.log("train_loss", train_loss)
         return train_loss
 
@@ -155,22 +156,10 @@ class TrainingEncoderNet(EncoderNet):
             if self.fk_sampler is None:
                 self.fk_sampler = utils.FrankaSampler(self.device, use_cache=True)
             
-            # # Calculate ground truth distances
-            # links_pc = self.fk_sampler.sample_per_link(q)
-            # ground_truth_links_dist = links_obs_dist(
-            #     links_pc,
-            #     cuboid_centers,
-            #     cuboid_dims,
-            #     cuboid_quats,
-            #     cylinder_centers,
-            #     cylinder_radii,
-            #     cylinder_heights,
-            #     cylinder_quats,
-            # )
-            
-            input_pc = self.fk_sampler.sample(q, self.num_robot_points)
-            ground_truth_min_dist = minimal_collision_distance(
-                input_pc,
+            # Calculate ground truth distances
+            links_pc = self.fk_sampler.sample_per_link(q)
+            ground_truth_links_dist = links_obs_dist(
+                links_pc,
                 cuboid_centers,
                 cuboid_dims,
                 cuboid_quats,
@@ -180,9 +169,21 @@ class TrainingEncoderNet(EncoderNet):
                 cylinder_quats,
             )
             
+            # input_pc = self.fk_sampler.sample(q, self.num_robot_points)
+            # ground_truth_min_dist = minimal_collision_distance(
+            #     input_pc,
+            #     cuboid_centers,
+            #     cuboid_dims,
+            #     cuboid_quats,
+            #     cylinder_centers,
+            #     cylinder_radii,
+            #     cylinder_heights,
+            #     cylinder_quats,
+            # )
+            
             # Calculate validation loss
-            # val_loss = self.loss_fun(pred_links_dist, ground_truth_min_dist)
-            val_loss = self.loss_fun(pred_links_dist.squeeze(-1), ground_truth_min_dist)
+            val_loss = self.loss_fun(pred_links_dist, ground_truth_links_dist)
+            # val_loss = self.loss_fun(pred_links_dist.squeeze(-1), ground_truth_min_dist)
             self.validation_step_outputs.append(val_loss)
             return val_loss
 

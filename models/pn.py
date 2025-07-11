@@ -9,14 +9,14 @@ class PCEncoder(pl.LightningModule):
     def __init__(
         self,
         pc_latent_dim: int = 2048,
-        use_layernorm: bool = True,
+        use_layernorm: bool = False,
         final_norm: str = 'layernorm',
         use_projection: bool = True,
         **kwargs
     ):
         super().__init__()
 
-        in_channels = 3
+        in_channels = 4  # xyzf: x, y, z, feature
         block_channel = [64, 128, 256]
 
         self.mlp = nn.Sequential(
