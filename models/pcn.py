@@ -41,7 +41,6 @@ class PCNEncoder(pl.LightningModule):
             nn.Linear(2048, 2048),
         )
         
-
     def forward(self, xyzf: torch.Tensor) -> torch.Tensor:
         """
         Args:

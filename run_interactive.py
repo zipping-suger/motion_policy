@@ -11,22 +11,43 @@ from robofin.robots import FrankaRobot, FrankaGripper
 from robofin.bullet import BulletController
 from robofin.pointcloud.torch import FrankaSampler
 
-from models.policynet import PolicyNet
+# Updated model import
+from models.mpinet import MotionPolicyNetwork
 from utils import normalize_franka_joints, unnormalize_franka_joints
 from data_loader import PointCloudTrajectoryDataset, DatasetType
 from geometry import construct_mixed_point_cloud
-from geometrout.primitive import Cuboid, Cylinder, Sphere
-
+from geometrout.primitive import Cuboid, Cylinder
 
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 NUM_TARGET_POINTS = 128
-MAX_ROLLOUT_LENGTH = 50
+MAX_ROLLOUT_LENGTH = 75  # Stay the same as the original code from MPInet
 GOAL_THRESHOLD = 0.01  # 1 cm threshold for goal reaching
 
-model_path = "./checkpoints/dqu9herp/epoch-epoch=2-end.ckpt"
+model_path = "mpinets_hybrid_expert.ckpt"
 val_data_path = "./pretrain_data/ompl_table_6k"
 
+def create_point_cloud(robot_points, obstacle_points, target_points):
+    pc = torch.zeros(
+        NUM_ROBOT_POINTS + NUM_OBSTACLE_POINTS + NUM_TARGET_POINTS, 
+        4,  # x,y,z + segmentation mask
+        device="cuda:0"
+    )
+    # Robot points (mask=0)
+    pc[:NUM_ROBOT_POINTS, :3] = robot_points
+    pc[:NUM_ROBOT_POINTS, 3] = 0
+    
+    # Obstacle points (mask=1)
+    mid_start = NUM_ROBOT_POINTS
+    mid_end = mid_start + NUM_OBSTACLE_POINTS
+    pc[mid_start:mid_end, :3] = obstacle_points
+    pc[mid_start:mid_end, 3] = 1
+    
+    # Target points (mask=2)
+    pc[mid_end:, :3] = target_points
+    pc[mid_end:, 3] = 2
+    
+    return pc.unsqueeze(0)  # Add batch dimension
 
 def ensure_orthogonal_rotmat_polar(target_rotmat):
     target_rotmat = target_rotmat.reshape(3, 3)
@@ -92,8 +113,8 @@ def move_target_with_key(target_pose, key, pos_step=0.02, rot_step=5.0):
         target_pose = SE3(xyz=xyz, so3=so3)
     return moved, target_pose
 
-
-model = PolicyNet.load_from_checkpoint(model_path).cuda()
+# Load MotionPolicyNetwork
+model = MotionPolicyNetwork.load_from_checkpoint(model_path).cuda()
 model.eval()
 
 cpu_fk_sampler = FrankaSampler("cpu", use_cache=True)
@@ -103,12 +124,9 @@ sim = BulletController(hz=12, substeps=20, gui=True)
 franka = sim.load_robot(FrankaRobot)
 gripper = sim.load_robot(FrankaGripper, collision_free=True)
 
-# Set the camera position using the new method signature
+# Set camera
 sim.set_camera_position(
-    yaw=-90,           # degrees
-    pitch=-30,        # degrees
-    distance=2.5,     # meters
-    target=[0.0, 0.0, 0.5]
+    yaw=-90, pitch=-30, distance=2.5, target=[0.0, 0.0, 0.5]
 )
 
 dataset = PointCloudTrajectoryDataset(
@@ -121,14 +139,14 @@ dataset = PointCloudTrajectoryDataset(
     random_scale=0.0
 )
 
-problem_idx = 10
+problem_idx = 2
 print(f"\n======= Visualizing problem {problem_idx} =======")
 data = dataset[problem_idx]
 for key in data:
     if isinstance(data[key], torch.Tensor):
         data[key] = data[key].cuda()
 
-
+# Extract obstacles
 cuboid_centers = data["cuboid_centers"].cpu().numpy()
 cuboid_dims = data["cuboid_dims"].cpu().numpy()
 cuboid_quats = data["cuboid_quats"].cpu().numpy()
@@ -140,8 +158,7 @@ cylinder_quats = data["cylinder_quats"].cpu().numpy()
 cuboids = [
     Cuboid(c, d, q)
     for c, d, q in zip(
-        list(cuboid_centers), list(cuboid_dims), list(cuboid_quats)
-    )
+        list(cuboid_centers), list(cuboid_dims), list(cuboid_quats))
     if not np.all(np.isclose(d, 0))
 ]
 cylinders = [
@@ -155,27 +172,33 @@ cylinders = [
     if not np.isclose(r, 0) and not np.isclose(h, 0)
 ]
 
-# Load obstacles once
+# Precompute obstacle points once
+obstacle_points = construct_mixed_point_cloud(cuboids + cylinders, NUM_OBSTACLE_POINTS)
+obstacle_points_tensor = torch.tensor(
+    obstacle_points[:, :3], 
+    dtype=torch.float32, 
+    device="cuda:0"
+)
+
+# Load obstacles
 sim.load_primitives(cuboids + cylinders, color=[0.6, 0.6, 0.6, 1], visual_only=True)
 franka.marionette(data["configuration"].cpu().numpy())
 
-# Initial target robot configuration
+# Initial target pose
 target_franka = sim.load_robot(FrankaGripper, collision_free=True)
 target_config = data["target_configuration"].cpu().numpy().copy()
 target_pose = FrankaRobot.fk(target_config)
 target_franka.marionette(target_pose)
 
-
 print("Use WASD (XY), QE (Z) to move position.")
 print("Use U/O (roll), I/K (pitch), J/L (yaw) to rotate gripper.")
 print("Press SPACE to plan and execute. Press ESC to quit.")
 
-# Dummy OpenCV window (required for key input)
 cv2.namedWindow("Control", cv2.WINDOW_NORMAL)
 cv2.resizeWindow("Control", 200, 100)
 cv2.imshow("Control", np.zeros((100, 200), dtype=np.uint8))
 
-policy_final_config = None  # To store the final configuration after policy execution
+policy_final_config = None
 
 while True:
     key = cv2.waitKey(30) & 0xFF
@@ -191,60 +214,79 @@ while True:
         break
     elif key == 32:  # SPACE
         print("Planning and executing trajectory...")
-
-        # Plan and execute trajectory
-        with torch.no_grad():
-            xyz = data["xyz"].unsqueeze(0)
-            if policy_final_config is None:
-                start_config = data["configuration"]
-            else:
-                start_config = torch.tensor(policy_final_config, dtype=torch.float32).cuda()
+        
+        # Get start configuration
+        if policy_final_config is None:
+            start_config = data["configuration"].cpu().numpy()
+        else:
+            start_config = policy_final_config
+        
+        # Convert to tensor
+        current_q = torch.tensor(
+            start_config, 
+            dtype=torch.float32,
+            device="cuda:0"
+        ).unsqueeze(0)
+        q_norm = normalize_franka_joints(current_q)
+        
+        trajectory = []
+        trajectory.append(start_config.copy())
+        
+        for i in range(MAX_ROLLOUT_LENGTH):
+            # Sample points
+            robot_points = gpu_fk_sampler.sample(
+                current_q, 
+                NUM_ROBOT_POINTS
+            ).squeeze(0)
             
-            start_config_batched = start_config.unsqueeze(0)
+            target_pose_mat = torch.tensor(
+                target_pose.matrix,
+                dtype=torch.float32,
+                device="cuda:0"
+            ).unsqueeze(0)
+            target_points = gpu_fk_sampler.sample_end_effector(
+                target_pose_mat, 
+                NUM_TARGET_POINTS
+            ).squeeze(0)
             
-            # Solve Inverse Kinematics to get target configuration
-            # Construct the desired end-effector pose as an SE3 object
-            target_xyz = torch.tensor(target_pose.xyz, dtype=torch.float32, device=xyz.device).unsqueeze(0)  # shape (1, 3)
-            target_rotmat = torch.tensor(target_pose.so3.matrix, dtype=torch.float32, device=xyz.device).reshape(1, 9)
-            target_input = torch.cat([target_xyz, target_rotmat], dim=-1)  # shape (1, 12)
-
-            trajectory = []
-            q = start_config_batched.clone()
-            trajectory.append(q.squeeze(0).cpu().numpy())
-
-            for i in range(MAX_ROLLOUT_LENGTH):
-                delta_q = model(xyz, q, target_input)
-                q = q + delta_q
-                trajectory.append(q.squeeze(0).cpu().numpy())
-                robot_points = gpu_fk_sampler.sample(q, NUM_ROBOT_POINTS)
-                xyz[:, :NUM_ROBOT_POINTS, :3] = robot_points
-                current_position = gpu_fk_sampler.end_effector_pose(q)[:, :3, -1]
-                distance_to_target = torch.norm(current_position - target_xyz, dim=1)
-                if distance_to_target.item() < GOAL_THRESHOLD:
-                    print(f"Reached target in {i+1} steps!")
-                    break
-
+            # Create point cloud
+            xyz = create_point_cloud(
+                robot_points, 
+                obstacle_points_tensor, 
+                target_points
+            )
+            
+            # Policy prediction
+            delta_q = model(xyz, q_norm)
+            q_norm = q_norm + delta_q
+            current_q = unnormalize_franka_joints(q_norm)
+            current_config = current_q.squeeze(0).detach().cpu().numpy()
+            trajectory.append(current_config.copy())
+            
+            # Check termination
+            current_ee = FrankaRobot.fk(current_config).xyz
+            distance = np.linalg.norm(np.array(current_ee) - np.array(target_pose.xyz))
+            if distance < GOAL_THRESHOLD:
+                print(f"Reached target in {i+1} steps!")
+                break
+        
         print(f"Generated trajectory with {len(trajectory)} steps")
         franka.marionette(trajectory[0])
         time.sleep(0.2)
+        
         print(f"Executing policy trajectory...")
         for q in tqdm(trajectory):
             franka.control_position(q)
             sim.step()
-            sim_config, _ = franka.get_joint_states()
             time.sleep(0.08)
-
-        # Get final position of policy trajectory and calculate error
+        
+        # Store final configuration
         policy_final_config = trajectory[-1]
         policy_final_ee = FrankaRobot.fk(policy_final_config).xyz
-        policy_final_ee_np = np.array(policy_final_ee)
-        target_pose_xyz_np = np.array(target_pose.xyz)
-        error = np.linalg.norm(policy_final_ee_np - target_pose_xyz_np)
-        print(
-            f"Policy final position error: {error:.4f} m"
-        )
-
-        # Extra time to view final pose
+        error = np.linalg.norm(np.array(policy_final_ee) - np.array(target_pose.xyz))
+        print(f"Policy final position error: {error:.4f} m")
+        
+        # Pause at final pose
         for _ in range(10):
             sim.step()
             time.sleep(0.05)
