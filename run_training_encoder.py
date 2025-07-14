@@ -16,7 +16,7 @@ import torch
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, PROJECT_ROOT)
 from data_loader import DataModule
-from models.encoderent import TrainingEncoderNet  # Import the encoder model
+from models.encoderent_cfg import TrainingEncoderNet  # Import the encoder model
 
 def setup_trainer(
     accelerator: str,
@@ -79,7 +79,8 @@ def setup_trainer(
         gradient_clip_val=1.0,
         accelerator=accelerator,
         devices=gpu_num,
-        precision="16-mixed" if accelerator == "gpu" else 32,
+        # precision="16-mixed" if accelerator == "gpu" else 32,
+        precision=32,
         logger=False if logger is None else logger,
         **args,
     )

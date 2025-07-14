@@ -789,6 +789,38 @@ def links_obs_dist(
     return results if debug else link_dists
 
 
+def check_links_in_range(
+    link_pointclouds: dict,  # Dictionary of {link_name: torch.Tensor(B, N, 3)}
+    cuboid_centers: torch.Tensor,  # shape (B, M1, 3)
+    cuboid_dims: torch.Tensor,  # shape (B, M1, 3)
+    cuboid_quaternions: torch.Tensor,  # shape (B, M1, 4) [w, x, y, z]
+    cylinder_centers: torch.Tensor,  # shape (B, M2, 3)
+    cylinder_radii: torch.Tensor,  # shape (B, M2, 1)
+    cylinder_heights: torch.Tensor,  # shape (B, M2, 1)
+    cylinder_quaternions: torch.Tensor,  # shape (B, M2, 4) [w, x, y, z]
+    safety_threshold: float = 0.2  # distance threshold in meters
+) -> torch.Tensor:
+    """
+    For each link, checks if any point is within safety_threshold of any obstacle.
+    Returns a binary tensor (B, L) where 1 means the link is within range of an obstacle.
+    """
+    # Compute minimal distances for each link using links_obs_dist
+    link_dists = links_obs_dist(
+        link_pointclouds,
+        cuboid_centers,
+        cuboid_dims,
+        cuboid_quaternions,
+        cylinder_centers,
+        cylinder_radii,
+        cylinder_heights,
+        cylinder_quaternions,
+        debug=False
+    )
+    # Create binary tensor (1 = in range/danger zone, 0 = safe)
+    in_range = (link_dists < safety_threshold).float()
+    return in_range
+
+
 def compute_pose_loss_quat(
     pred_pose: torch.Tensor,
     target_pose: torch.Tensor

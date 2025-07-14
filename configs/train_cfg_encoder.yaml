@@ -1,12 +1,12 @@
-train_mode: "pretrain"  # "pretrain" or "fine-tune"
+train_mode: "finetune_tasks"  # "pretrain" or "fine-tune"
 
 training_model_parameters:
     pc_latent_dim: 2048
 
 data_module_parameters:
-  data_dir: "./pretrain_data/ompl_cubby_6k"
+  data_dir: "./pretrain_data/single_cubby_tasks_135k"
   trajectory_key: 'global_solutions' # Could also use 'global_solutions' for the global expert
-  num_obstacle_points: 4096
+  num_obstacle_points: 0
   num_target_points: 0
   random_scale: 0
 
@@ -20,4 +20,4 @@ accelerator: "gpu"
 gpu_num: 1  # If > 1, PyTorch Lightning will automatically use DDP for training
 batch_size: 16
 save_checkpoint_dir: "./checkpoints"
-experiment_name: encoder_pn_cubby_6k_predict_disable_layernorm
+experiment_name: encoder_pn2_single_cubby_tasks_135k_predict_q
