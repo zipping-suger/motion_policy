@@ -26,7 +26,7 @@ GOAL_THRESHOLD = 0.01  # 1 cm threshold for goal reaching
 
 # model_path = "./checkpoints/sdrwmtfu/last.ckpt"
 model_path = "./checkpoints/dqu9herp/epoch-epoch=2-end.ckpt"
-val_data_path = "./pretrain_data/ompl_cubby_6k"
+val_data_path = "./pretrain_data/ompl_cy_6k"
 
 
 def ensure_orthogonal_rotmat_polar(target_rotmat):
