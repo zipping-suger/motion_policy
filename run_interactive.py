@@ -40,6 +40,7 @@ def ensure_orthogonal_rotmat_polar(target_rotmat):
     
     return orthogonal_rotmat
 
+
 def move_target_with_key(target_pose, key, pos_step=0.02, rot_step=5.0):
     moved = False
     xyz = np.array(target_pose.xyz)
@@ -98,6 +99,7 @@ model.eval()
 
 cpu_fk_sampler = FrankaSampler("cpu", use_cache=True)
 gpu_fk_sampler = FrankaSampler("cuda:0", use_cache=True)
+
 
 sim = BulletController(hz=12, substeps=20, gui=True)
 franka = sim.load_robot(FrankaRobot)
@@ -218,6 +220,19 @@ while True:
                 trajectory.append(q.squeeze(0).cpu().numpy())
                 robot_points = gpu_fk_sampler.sample(q, NUM_ROBOT_POINTS)
                 xyz[:, :NUM_ROBOT_POINTS, :3] = robot_points
+                
+                target_pose_mat = torch.tensor(
+                    target_pose.matrix,
+                    dtype=torch.float32,
+                    device="cuda:0"
+                        ).unsqueeze(0)
+                
+                target_points = gpu_fk_sampler.sample_end_effector(
+                    target_pose_mat, 
+                    NUM_TARGET_POINTS
+                    ).squeeze(0)
+                xyz[:, NUM_ROBOT_POINTS + NUM_OBSTACLE_POINTS:, :3] = target_points
+                
                 current_position = gpu_fk_sampler.end_effector_pose(q)[:, :3, -1]
                 distance_to_target = torch.norm(current_position - target_xyz, dim=1)
                 if distance_to_target.item() < GOAL_THRESHOLD:

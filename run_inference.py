@@ -31,7 +31,7 @@ NUM_DMEO = 10
 
 # model_path = "./checkpoints/sdrwmtfu/last.ckpt"
 model_path = "./checkpoints/dqu9herp/epoch-epoch=2-end.ckpt"
-val_data_path = "./pretrain_data/ompl_cubby_22k"
+val_data_path = "./pretrain_data/ompl_table_6k"
 
 # model = PolicyNet().to("cuda:0")
 model = PolicyNet.load_from_checkpoint(model_path).cuda()
@@ -89,7 +89,7 @@ for problem_idx in problems_to_visualize:
     print(f"\n======= Visualizing problem {problem_idx} =======")
     
     # Get data for this problem
-    data = dataset[problem_idx + 50]
+    data = dataset[problem_idx]
     
     # Extract expert trajectory
     expert_trajectory = get_expert_trajectory(dataset, problem_idx)
@@ -164,6 +164,11 @@ for problem_idx in problems_to_visualize:
         trajectory.append(q.squeeze(0).cpu().numpy())
         
         for i in range(MAX_ROLLOUT_LENGTH):
+            # Update point cloud with new robot position
+            # robot_points = gpu_fk_sampler.sample(unnorm_q, NUM_ROBOT_POINTS)
+            robot_points = gpu_fk_sampler.sample(q, NUM_ROBOT_POINTS)
+            xyz[:, :NUM_ROBOT_POINTS, :3] = robot_points
+            
             # Forward pass through the model
             delta_q = model(xyz, q, target_input)
             q = q + delta_q
@@ -172,11 +177,6 @@ for problem_idx in problems_to_visualize:
             # unnorm_q = unnormalize_franka_joints(q)
             # trajectory.append(unnorm_q.squeeze(0).cpu().numpy())
             trajectory.append(q.squeeze(0).cpu().numpy())
-            
-            # Update point cloud with new robot position
-            # robot_points = gpu_fk_sampler.sample(unnorm_q, NUM_ROBOT_POINTS)
-            robot_points = gpu_fk_sampler.sample(q, NUM_ROBOT_POINTS)
-            xyz[:, :NUM_ROBOT_POINTS, :3] = robot_points
             
             # Check if we've reached the target
             target_position = data["target_position"].unsqueeze(0)
