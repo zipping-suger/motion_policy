@@ -29,8 +29,8 @@ SHOW_EXPERT_TRAJ = False
 GOAL_THRESHOLD = 0.05  # 5cm threshold for goal reaching
 NUM_DMEO = 10 
 
-# model_path = "./checkpoints/sdrwmtfu/last.ckpt"
-model_path = "./checkpoints/dqu9herp/epoch-epoch=2-end.ckpt"
+model_path = "./checkpoints/sdrwmtfu/last.ckpt"
+# model_path = "./checkpoints/dqu9herp/epoch-epoch=2-end.ckpt"
 val_data_path = "./pretrain_data/ompl_table_6k"
 
 # model = PolicyNet().to("cuda:0")

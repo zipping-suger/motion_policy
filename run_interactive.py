@@ -24,7 +24,8 @@ NUM_TARGET_POINTS = 128
 MAX_ROLLOUT_LENGTH = 50
 GOAL_THRESHOLD = 0.01  # 1 cm threshold for goal reaching
 
-model_path = "./checkpoints/dqu9herp/epoch-epoch=2-end.ckpt"
+model_path = "./checkpoints/sdrwmtfu/last.ckpt"
+# model_path = "./checkpoints/dqu9herp/epoch-epoch=2-end.ckpt"
 val_data_path = "./pretrain_data/ompl_table_6k"
 
 
