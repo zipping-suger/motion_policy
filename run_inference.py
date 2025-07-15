@@ -87,12 +87,7 @@ for problem_idx in problems_to_visualize:
     
     data = dataset[problem_idx]
     expert_trajectory = get_expert_trajectory(dataset, problem_idx)
-    
-    # Initial target robot configuration
-    target_config = data["target_configuration"].cpu().numpy().copy()
-    target_pose = FrankaRobot.fk(target_config)
-    target_franka.marionette(target_pose)
-    
+        
     # Move tensors to GPU
     for key in data:
         if isinstance(data[key], torch.Tensor):
@@ -167,6 +162,11 @@ for problem_idx in problems_to_visualize:
     # Load obstacles in simulation
     sim.load_primitives(cuboids + cylinders, color=[0.6, 0.6, 0.6, 1], visual_only=True)
     
+    # Initial target robot configuration
+    target_config = data["target_configuration"].cpu().numpy().copy()
+    target_pose = FrankaRobot.fk(target_config)
+    target_franka.marionette(target_pose)
+    
     # Visualize obstacle point cloud in meshcat
     obstacle_points = construct_mixed_point_cloud(cuboids + cylinders, NUM_OBSTACLE_POINTS)
     obstacle_pc = obstacle_points[:, :3]
@@ -183,14 +183,24 @@ for problem_idx in problems_to_visualize:
         )
     )
     
-    # Visualize target position
-    target_position = data["target_position"].cpu().numpy()
-    viz["target"].set_object(
-        meshcat.geometry.Sphere(0.03),
-        meshcat.geometry.MeshLambertMaterial(color=0xFF0000)
-    )
-    viz["target"].set_transform(
-        meshcat.transformations.translation_matrix(target_position)
+    # Visualize target point cloud in meshcat
+    # Sample target points
+    target_config_batched = data["target_configuration"]  # Add this line
+    target_points = gpu_fk_sampler.sample_end_effector(
+            torch.as_tensor(target_pose.matrix).float().cuda(),
+            num_points=NUM_TARGET_POINTS)
+    print("Shape of target points:", target_points.shape)
+    target_pc = target_points.squeeze(0).cpu().numpy()  # Shape (128, 3)
+
+    # Create color array for target points (red for target)
+    target_colors = np.zeros((3, target_pc.shape[0]))
+    target_colors[0, :] = 1.0  # Red for target
+    viz["target_point_cloud"].set_object(
+        meshcat.geometry.PointCloud(
+            position=target_pc.T,  # Shape (3, N)
+            color=target_colors,
+            size=0.005,
+        )
     )
     
     # Calculate trajectories statistics
@@ -198,11 +208,10 @@ for problem_idx in problems_to_visualize:
     print(f"Expert trajectory: {expert_trajectory.shape[0]} steps")
     print(f"Policy trajectory: {len(trajectory)} steps")
     
-    # Calculate end effector positions
+    # Calculate end effector positions for expert final state
     expert_final_ee = FrankaRobot.fk(expert_trajectory[-1]).xyz
-    policy_final_ee = FrankaRobot.fk(trajectory[-1]).xyz
-    print(f"Expert final position error: {np.linalg.norm(expert_final_ee - target_position):.4f} m")
-    print(f"Policy final position error: {np.linalg.norm(policy_final_ee - target_position):.4f} m")
+    target_position_np = target_position.cpu().numpy() if torch.is_tensor(target_position) else np.array(target_position)
+    print(f"Expert final position error: {np.linalg.norm(expert_final_ee - target_position_np):.4f} m")
     
     if SHOW_EXPERT_TRAJ:
         print("Executing expert trajectory...")
@@ -238,6 +247,12 @@ for problem_idx in problems_to_visualize:
         for idx, (k, v) in enumerate(urdf.visual_trimesh_fk(sim_config[:8]).items()):
             viz[f"robot/{idx}"].set_transform(v)
         time.sleep(0.05)
+        
+    # Get final position of policy trajectory and calculate error
+    policy_final_config = trajectory[-1]
+    policy_final_ee = FrankaRobot.fk(policy_final_config).xyz
+    target_position_np = target_position.cpu().numpy() if torch.is_tensor(target_position) else np.array(target_position)
+    print(f"Policy final position error: {np.linalg.norm(policy_final_ee - target_position_np):.4f} m")
     
     # Collision checking for policy trajectory
     traj_tensor = torch.tensor(np.array(trajectory), dtype=torch.float32, device="cuda:0").unsqueeze(0)
