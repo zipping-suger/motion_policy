@@ -258,7 +258,7 @@ while True:
             
             # Policy prediction
             delta_q = model(xyz, q_norm)
-            q_norm = q_norm + delta_q
+            q_norm = torch.clamp(q_norm + delta_q, min=-1, max=1)
             current_q = unnormalize_franka_joints(q_norm)
             current_config = current_q.squeeze(0).detach().cpu().numpy()
             trajectory.append(current_config.copy())

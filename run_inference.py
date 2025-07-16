@@ -109,7 +109,7 @@ for problem_idx in problems_to_visualize:
     for i in range(MAX_ROLLOUT_LENGTH):
         # Forward pass through model with normalized config
         delta_q = model(xyz, q_norm)
-        q_norm = q_norm + delta_q
+        q_norm = torch.clamp(q_norm + delta_q, min=-1, max=1)
         
         # Unnormalize for visualization and FK
         q_unnorm = unnormalize_franka_joints(q_norm)
