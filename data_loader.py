@@ -136,10 +136,7 @@ class TaskDataset(Dataset):
             target_config = f['target_configs'][idx]              
             target_pose = FrankaRealRobot.fk(
                 target_config
-            )
-            
-            # Convert to Robot A convention
-            target_pose_matrix_A = utils.convert_robotB_to_robotA(target_pose.matrix)            
+            )        
     
             target_points = self.fk_sampler.sample_end_effector(
                 torch.as_tensor(target_pose.matrix).float(),
@@ -147,7 +144,7 @@ class TaskDataset(Dataset):
             )
             
             # Extract position and quaternion from Robot A pose
-            target_position = torch.as_tensor(target_pose_matrix_A[:3, 3], dtype=torch.float32)
+            target_position = torch.as_tensor(target_pose.matrix[:3, 3], dtype=torch.float32)
             
             # target_quaternion = torch.as_tensor(
             #     Quaternion(matrix=target_pose_matrix_A).elements, dtype=torch.float32
