@@ -7,31 +7,29 @@ import pickle
 import meshcat
 import urchin
 from pathlib import Path
-
+from typing import List, Union
 from robofin.robots import FrankaRobot, FrankaGripper
 from robofin.bullet import BulletController
-from robofin.pointcloud.torch import FrankaSampler
+from robofin.pointcloud.torch import FrankaSampler, FrankaCollisionSampler
 
-# Changed to MotionPolicyNetwork
 from models.mpinet import MotionPolicyNetwork
 from utils import normalize_franka_joints, unnormalize_franka_joints
 from data_loader import PointCloudTrajectoryDataset, DatasetType
 from geometry import construct_mixed_point_cloud
-from geometrout.primitive import Cuboid, Cylinder, Sphere
-from robofin.pointcloud.torch import FrankaCollisionSampler
+from geometrout.primitive import Cuboid, Cylinder
 from geometry import TorchCuboids, TorchCylinders
+from geometrout.transform import SE3
 
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 NUM_TARGET_POINTS = 128
-MAX_ROLLOUT_LENGTH = 150 # Stay the same as the original code from MPInet
-SHOW_EXPERT_TRAJ = False
-GOAL_THRESHOLD = 0.05  # 5cm threshold for goal reaching
+MAX_ROLLOUT_LENGTH = 150
+GOAL_THRESHOLD = 0.01  # 1cm threshold for goal reaching
+ANGLE_THRESHOLD = 15  # 15 degrees threshold for orientation
 NUM_DEMO = 10 
 
 model_path = "mpinets_hybrid_expert.ckpt"
-# val_data_path = "./pretrain_data/ompl_cubby_22k"
-val_data_path = "./pretrain_data/ompl_table_6k"
+val_data_path = "./pretrain_data/ompl_cubby_6k"
 
 # Load MotionPolicyNetwork
 model = MotionPolicyNetwork.load_from_checkpoint(model_path).cuda()
@@ -79,6 +77,81 @@ def get_expert_trajectory(dataset, idx):
         return trajectory
 
 
+def make_point_cloud_from_primitives(
+    q0: torch.Tensor,
+    target: SE3,
+    obstacles: List[Union[Cuboid, Cylinder]],
+    fk_sampler: FrankaSampler,
+) -> torch.Tensor:
+    """
+    Creates point cloud from primitives instead of using pre-sampled points
+    """
+    obstacle_points = construct_mixed_point_cloud(obstacles, NUM_OBSTACLE_POINTS)
+    robot_points = fk_sampler.sample(q0, NUM_ROBOT_POINTS)
+    
+    target_points = fk_sampler.sample_end_effector(
+        torch.as_tensor(target.matrix).type_as(robot_points).unsqueeze(0),
+        num_points=NUM_TARGET_POINTS,
+    )
+    
+    xyz = torch.cat(
+        (
+            torch.zeros(NUM_ROBOT_POINTS, 4),
+            torch.ones(NUM_OBSTACLE_POINTS, 4),
+            2 * torch.ones(NUM_TARGET_POINTS, 4),
+        ),
+        dim=0,
+    )
+    xyz[:NUM_ROBOT_POINTS, :3] = robot_points.float()
+    xyz[NUM_ROBOT_POINTS:NUM_ROBOT_POINTS+NUM_OBSTACLE_POINTS, :3] = torch.as_tensor(obstacle_points[:, :3]).float()
+    xyz[NUM_ROBOT_POINTS+NUM_OBSTACLE_POINTS:, :3] = target_points.float()
+    
+    return xyz
+
+
+def rollout_until_success(
+    model: MotionPolicyNetwork,
+    q0: np.ndarray,
+    target: SE3,
+    obstacles: List[Union[Cuboid, Cylinder]],
+    fk_sampler: FrankaSampler,
+) -> np.ndarray:
+    """
+    Improved rollout logic with both position and orientation checking
+    """
+    q = torch.as_tensor(q0).unsqueeze(0).float().cuda()
+    trajectory = [q]
+    q_norm = normalize_franka_joints(q)
+    
+    # Create initial point cloud from primitives
+    point_cloud = make_point_cloud_from_primitives(q, target, obstacles, fk_sampler).unsqueeze(0).cuda()
+    
+    def sampler(config):
+        return fk_sampler.sample(config, NUM_ROBOT_POINTS)
+
+    for i in range(MAX_ROLLOUT_LENGTH):
+        q_norm = torch.clamp(q_norm + model(point_cloud, q_norm), min=-1, max=1)
+        qt = unnormalize_franka_joints(q_norm)
+        trajectory.append(qt)
+        
+        # Get current end effector pose
+        eff_pose = FrankaRobot.fk(qt.squeeze().detach().cpu().numpy(), eff_frame="right_gripper")
+        
+        # Check position and orientation thresholds
+        position_error = np.linalg.norm(eff_pose._xyz - target._xyz)
+        orientation_error = np.abs(np.degrees((eff_pose.so3._quat * target.so3._quat.conjugate).radians))
+        
+        if position_error < GOAL_THRESHOLD and orientation_error < ANGLE_THRESHOLD:
+            print(f"Reached target in {i+1} steps! (Position error: {position_error:.4f}m, Orientation error: {orientation_error:.2f}°)")
+            break
+            
+        # Update point cloud with new robot configuration
+        samples = sampler(qt).type_as(point_cloud)
+        point_cloud[:, : samples.shape[1], :3] = samples
+
+    return np.asarray([t.squeeze().detach().cpu().numpy() for t in trajectory])
+
+
 num_problems = min(NUM_DEMO, len(dataset))
 problems_to_visualize = range(num_problems)
 
@@ -88,48 +161,6 @@ for problem_idx in problems_to_visualize:
     data = dataset[problem_idx]
     expert_trajectory = get_expert_trajectory(dataset, problem_idx)
         
-    # Move tensors to GPU
-    for key in data:
-        if isinstance(data[key], torch.Tensor):
-            data[key] = data[key].cuda()
-    
-    # Use XYZ only without segmentation mask
-    xyz = data["xyz"].unsqueeze(0)
-    
-    # Use normalized configuration for model input
-    q_norm = normalize_franka_joints(data["configuration"]).unsqueeze(0)
-    
-    # Generate rollout
-    trajectory = []
-    
-    # Unnormalize start config for visualization
-    q_unnorm = unnormalize_franka_joints(q_norm)
-    trajectory.append(q_unnorm.squeeze(0).cpu().detach().numpy())
-    
-    for i in range(MAX_ROLLOUT_LENGTH):
-        # Forward pass through model with normalized config
-        delta_q = model(xyz, q_norm)
-        q_norm = torch.clamp(q_norm + delta_q, min=-1, max=1)
-        
-        # Unnormalize for visualization and FK
-        q_unnorm = unnormalize_franka_joints(q_norm)
-        trajectory.append(q_unnorm.squeeze(0).cpu().detach().numpy())
-        
-        # Update point cloud with new robot position
-        robot_points = gpu_fk_sampler.sample(q_unnorm, NUM_ROBOT_POINTS)
-        xyz[:, :NUM_ROBOT_POINTS, :3] = robot_points
-        
-        # Check if we've reached the target
-        target_position = data["target_position"].unsqueeze(0)
-        current_position = gpu_fk_sampler.end_effector_pose(q_unnorm)[:, :3, -1]
-        
-        distance_to_target = torch.norm(current_position - target_position, dim=1)
-        if distance_to_target.item() < GOAL_THRESHOLD:
-            print(f"Reached target in {i+1} steps!")
-            break
-
-    print(f"Generated trajectory with {len(trajectory)} steps")
-    
     # Create obstacle primitives from data
     cuboid_centers = data["cuboid_centers"].cpu().numpy()
     cuboid_dims = data["cuboid_dims"].cpu().numpy()
@@ -142,9 +173,7 @@ for problem_idx in problems_to_visualize:
     
     cuboids = [
         Cuboid(c, d, q)
-        for c, d, q in zip(
-            list(cuboid_centers), list(cuboid_dims), list(cuboid_quats)
-        )
+        for c, d, q in zip(list(cuboid_centers), list(cuboid_dims), list(cuboid_quats))
         if not np.all(np.isclose(d, 0))
     ]
     
@@ -159,85 +188,51 @@ for problem_idx in problems_to_visualize:
         if not np.isclose(r, 0) and not np.isclose(h, 0)
     ]
     
-    # Load obstacles in simulation
-    sim.load_primitives(cuboids + cylinders, color=[0.6, 0.6, 0.6, 1], visual_only=True)
+    obstacles = cuboids + cylinders
     
-    # Initial target robot configuration
-    target_config = data["target_configuration"].cpu().numpy().copy()
-    target_pose = FrankaRobot.fk(target_config)
+    # Get target pose from target configuration
+    target_pose = FrankaRobot.fk(data["target_configuration"].cpu().numpy(), eff_frame="right_gripper")
+    
+    # Generate rollout using improved function
+    trajectory = rollout_until_success(
+        model,
+        data["configuration"].cpu().numpy(),
+        target_pose,
+        obstacles,
+        gpu_fk_sampler
+    )
+    
+    # Load obstacles in simulation
+    sim.load_primitives(obstacles, color=[0.6, 0.6, 0.6, 1], visual_only=True)
+    
+    # Visualize target
     target_franka.marionette(target_pose)
     
-    # Visualize obstacle point cloud in meshcat
-    obstacle_points = construct_mixed_point_cloud(cuboids + cylinders, NUM_OBSTACLE_POINTS)
-    obstacle_pc = obstacle_points[:, :3]
+    # Visualize point clouds from primitives
+    obstacle_points = construct_mixed_point_cloud(obstacles, NUM_OBSTACLE_POINTS)
+    target_points = gpu_fk_sampler.sample_end_effector(
+        torch.as_tensor(target_pose.matrix).float().cuda(),
+        num_points=NUM_TARGET_POINTS
+    ).squeeze(0).cpu().numpy()
     
-    # Create color array for points (green for obstacles)
-    point_cloud_colors = np.zeros((3, obstacle_pc.shape[0]))
-    point_cloud_colors[1, :] = 1.0  # Green for obstacles
+    point_cloud_colors = np.zeros((3, NUM_OBSTACLE_POINTS + NUM_TARGET_POINTS))
+    point_cloud_colors[1, :NUM_OBSTACLE_POINTS] = 1  # Green for obstacles
+    point_cloud_colors[0, NUM_OBSTACLE_POINTS:] = 1  # Red for target
+    
+    combined_points = np.vstack([obstacle_points[:, :3], target_points])
     
     viz["point_cloud"].set_object(
         meshcat.geometry.PointCloud(
-            position=obstacle_pc.T,
+            position=combined_points.T,
             color=point_cloud_colors,
             size=0.005,
         )
     )
     
-    # Visualize target point cloud in meshcat
-    # Sample target points
-    target_config_batched = data["target_configuration"]  # Add this line
-    target_points = gpu_fk_sampler.sample_end_effector(
-            torch.as_tensor(target_pose.matrix).float().cuda(),
-            num_points=NUM_TARGET_POINTS)
-    print("Shape of target points:", target_points.shape)
-    target_pc = target_points.squeeze(0).cpu().numpy()  # Shape (128, 3)
-
-    # Create color array for target points (red for target)
-    target_colors = np.zeros((3, target_pc.shape[0]))
-    target_colors[0, :] = 1.0  # Red for target
-    viz["target_point_cloud"].set_object(
-        meshcat.geometry.PointCloud(
-            position=target_pc.T,  # Shape (3, N)
-            color=target_colors,
-            size=0.005,
-        )
-    )
-    
-    # Calculate trajectories statistics
-    print("\n=== Trajectory Comparison ===")
-    print(f"Expert trajectory: {expert_trajectory.shape[0]} steps")
-    print(f"Policy trajectory: {len(trajectory)} steps")
-    
-    # Calculate end effector positions for expert final state
-    expert_final_ee = FrankaRobot.fk(expert_trajectory[-1]).xyz
-    target_position_np = target_position.cpu().numpy() if torch.is_tensor(target_position) else np.array(target_position)
-    print(f"Expert final position error: {np.linalg.norm(expert_final_ee - target_position_np):.4f} m")
-    
-    if SHOW_EXPERT_TRAJ:
-        print("Executing expert trajectory...")
-        franka.marionette(expert_trajectory[0])
-        time.sleep(0.5)
-        
-        for q in tqdm(expert_trajectory):
-            franka.control_position(q)
-            sim.step()
-            sim_config, _ = franka.get_joint_states()
-            
-            # Update meshcat visualization
-            for idx, (k, v) in enumerate(urdf.visual_trimesh_fk(sim_config[:8]).items()):
-                viz[f"robot/{idx}"].set_transform(v)
-            time.sleep(0.05)
-        
-        print("Resetting to start configuration...")
-        franka.marionette(trajectory[0])
-        time.sleep(1.0)
-    
-    # Initialize robot to start configuration
+    # Initialize robot and execute trajectory
     franka.marionette(trajectory[0])
     time.sleep(0.5)
     
-    # Execute policy trajectory
-    print(f"Executing policy trajectory...")
     for q in tqdm(trajectory):
         franka.control_position(q)
         sim.step()
@@ -247,27 +242,21 @@ for problem_idx in problems_to_visualize:
         for idx, (k, v) in enumerate(urdf.visual_trimesh_fk(sim_config[:8]).items()):
             viz[f"robot/{idx}"].set_transform(v)
         time.sleep(0.05)
-        
-    # Get final position of policy trajectory and calculate error
-    policy_final_config = trajectory[-1]
-    policy_final_ee = FrankaRobot.fk(policy_final_config).xyz
-    target_position_np = target_position.cpu().numpy() if torch.is_tensor(target_position) else np.array(target_position)
-    print(f"Policy final position error: {np.linalg.norm(policy_final_ee - target_position_np):.4f} m")
     
-    # Collision checking for policy trajectory
+    # Collision checking
     traj_tensor = torch.tensor(np.array(trajectory), dtype=torch.float32, device="cuda:0").unsqueeze(0)
     traj_flat = traj_tensor.reshape(-1, 7)
 
     cuboids_torch = TorchCuboids(
-        data["cuboid_centers"].unsqueeze(0),
-        data["cuboid_dims"].unsqueeze(0),
-        data["cuboid_quats"].unsqueeze(0)
+        torch.tensor(cuboid_centers).unsqueeze(0).cuda(),
+        torch.tensor(cuboid_dims).unsqueeze(0).cuda(),
+        torch.tensor(cuboid_quats).unsqueeze(0).cuda()
     )
     cylinders_torch = TorchCylinders(
-        data["cylinder_centers"].unsqueeze(0),
-        data["cylinder_radii"].unsqueeze(0),
-        data["cylinder_heights"].unsqueeze(0),
-        data["cylinder_quats"].unsqueeze(0)
+        torch.tensor(cylinder_centers).unsqueeze(0).cuda(),
+        torch.tensor(cylinder_radii).unsqueeze(0).cuda(),
+        torch.tensor(cylinder_heights).unsqueeze(0).cuda(),
+        torch.tensor(cylinder_quats).unsqueeze(0).cuda()
     )
 
     collision_spheres = collision_sampler.compute_spheres(traj_flat)
@@ -284,15 +273,11 @@ for problem_idx in problems_to_visualize:
             has_collision = True
             break
 
-    print(f"Policy trajectory collision: {'YES' if has_collision else 'NO'}")
+    print(f"Trajectory collision: {'YES' if has_collision else 'NO'}")
     
     # Extra time to view final pose
     for _ in range(20):
         sim.step()
-        sim_config, _ = franka.get_joint_states()
-        for idx, (k, v) in enumerate(urdf.visual_trimesh_fk(sim_config[:8]).items()):
-            viz[f"robot/{idx}"].set_transform(v)
         time.sleep(0.05)
     
-    # Clear obstacles before next problem
     sim.clear_all_obstacles()

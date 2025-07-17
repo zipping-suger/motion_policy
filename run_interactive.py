@@ -27,6 +27,7 @@ GOAL_THRESHOLD = 0.01  # 1 cm threshold for goal reaching
 model_path = "mpinets_hybrid_expert.ckpt"
 val_data_path = "./pretrain_data/ompl_table_6k"
 
+
 def create_point_cloud(robot_points, obstacle_points, target_points):
     pc = torch.zeros(
         NUM_ROBOT_POINTS + NUM_OBSTACLE_POINTS + NUM_TARGET_POINTS, 
@@ -48,6 +49,7 @@ def create_point_cloud(robot_points, obstacle_points, target_points):
     pc[mid_end:, 3] = 2
     
     return pc.unsqueeze(0)  # Add batch dimension
+
 
 def ensure_orthogonal_rotmat_polar(target_rotmat):
     target_rotmat = target_rotmat.reshape(3, 3)
@@ -112,6 +114,7 @@ def move_target_with_key(target_pose, key, pos_step=0.02, rot_step=5.0):
     if moved:
         target_pose = SE3(xyz=xyz, so3=so3)
     return moved, target_pose
+
 
 # Load MotionPolicyNetwork
 model = MotionPolicyNetwork.load_from_checkpoint(model_path).cuda()

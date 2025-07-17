@@ -65,7 +65,6 @@ def convert_robotB_to_robotA(pose_B):
     
     return T_A
 
-
 def _normalize_franka_joints_numpy(
     batch_trajectory: np.ndarray,
     limits: Tuple[float, float] = (-1, 1),

@@ -145,7 +145,6 @@ class TaskDataset(Dataset):
                 num_points=self.num_target_points,
             )
             
-            # Extract position and quaternion from Robot A pose
             target_position = torch.as_tensor(target_pose_matrix[:3, 3], dtype=torch.float32)
             
             # target_quaternion = torch.as_tensor(
