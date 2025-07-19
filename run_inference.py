@@ -27,7 +27,7 @@ MAX_ROLLOUT_LENGTH = 50
 # Set this flag to True to always show expert trajectory, False to skip
 SHOW_EXPERT_TRAJ = False
 GOAL_THRESHOLD = 0.05  # 5cm threshold for goal reaching
-NUM_DMEO = 10 
+NUM_DMEO = 10
 
 # model_path = "./checkpoints/sdrwmtfu/last.ckpt"
 model_path = "./checkpoints/vtfx7qc8/last.ckpt"
