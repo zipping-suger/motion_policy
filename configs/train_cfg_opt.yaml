@@ -6,7 +6,7 @@ training_model_parameters:
     collision_loss_weight: 1
 
 data_module_parameters:
-  data_dir: "./pretrain_data/ompl_table_6k"
+  data_dir: "./pretrain_data/ompl_cubby_6k"
   trajectory_key: 'global_solutions' # Could also use 'global_solutions' for the global expert
   num_obstacle_points: 4096
   num_target_points: 128
@@ -15,11 +15,11 @@ data_module_parameters:
 shared_parameters:
     num_robot_points: 2048
 
-model_path: "./checkpoints/0zi5yt83/last.ckpt"
+model_path: "./checkpoints/vtfx7qc8/last.ckpt"
 checkpoint_interval: 10
 validation_interval: 10
 accelerator: "gpu"
 gpu_num: 1  # If > 1, PyTorch Lightning will automatically use DDP for training
 batch_size: 1
 save_checkpoint_dir: "./checkpoints/finetune"
-experiment_name: finetune_table_6k
+experiment_name: finetune_cubby_6k
