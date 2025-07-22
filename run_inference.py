@@ -23,15 +23,21 @@ from geometry import TorchCuboids, TorchCylinders
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
 NUM_TARGET_POINTS = 128
-MAX_ROLLOUT_LENGTH = 50
+MAX_ROLLOUT_LENGTH = 60
 # Set this flag to True to always show expert trajectory, False to skip
 SHOW_EXPERT_TRAJ = False
-GOAL_THRESHOLD = 0.05  # 5cm threshold for goal reaching
-NUM_DMEO = 10
+GOAL_THRESHOLD = 0.01  # 5cm threshold for goal reaching
+NUM_DMEO = 15
 
-# model_path = "./checkpoints/sdrwmtfu/last.ckpt"
-model_path = "./checkpoints/0zi5yt83/last.ckpt"
-val_data_path = "./pretrain_data/ompl_table_6k"
+# # Cubby
+# model_path = "./checkpoints/my_cubby_pre/last.ckpt" # pretrained model
+model_path = "./checkpoints/my_cubby_fine/epoch=77-step=3660.ckpt" # finetuned model
+val_data_path = "./pretrain_data/ompl_cubby_6k"
+
+# # Table
+# model_path = "./checkpoints/my_table_pre/last.ckpt" # pretrained model
+# model_path = "./checkpoints/my_table_fine/epoch=69-step=3290.ckpt" # finetuned model
+# val_data_path = "./pretrain_data/ompl_table_6k"
 
 # model = PolicyNet().to("cuda:0")
 model = PolicyNet.load_from_checkpoint(model_path).cuda()
@@ -44,6 +50,24 @@ collision_sampler = FrankaCollisionSampler("cuda:0", with_base_link=False)
 
 # Setup simulation
 sim = BulletController(hz=12, substeps=20, gui=True)
+
+# Set the camera position using the new method signature
+
+# For Cubby 
+sim.set_camera_position(
+    yaw=-50,           # degrees
+    pitch=-30,        # degrees
+    distance=1.2,     # meters
+    target=[0.0, 0.0, 0.5]
+)
+
+# # For Table
+# sim.set_camera_position(
+#     yaw= 70,           # degrees
+#     pitch=-30,        # degrees
+#     distance=2,     # meters
+#     target=[0.0, 0.0, 0.5]
+# )
 
 # Load meshcat visualizer for point cloud visualization
 viz = meshcat.Visualizer()
@@ -85,11 +109,12 @@ def get_expert_trajectory(dataset, idx):
 num_problems = min(NUM_DMEO, len(dataset))
 problems_to_visualize = range(num_problems)
 
+
 for problem_idx in problems_to_visualize:
     print(f"\n======= Visualizing problem {problem_idx} =======")
     
     # Get data for this problem
-    data = dataset[problem_idx]
+    data = dataset[problem_idx+1]
     
     # Extract expert trajectory
     expert_trajectory = get_expert_trajectory(dataset, problem_idx)
@@ -163,6 +188,7 @@ for problem_idx in problems_to_visualize:
         
         trajectory.append(q.squeeze(0).cpu().numpy())
         
+        st = time.time()
         for i in range(MAX_ROLLOUT_LENGTH):
             # Update point cloud with new robot position
             # robot_points = gpu_fk_sampler.sample(unnorm_q, NUM_ROBOT_POINTS)
@@ -190,6 +216,8 @@ for problem_idx in problems_to_visualize:
                 break
 
     print(f"Generated trajectory with {len(trajectory)} steps")
+    gen_time = time.time() - st  # use millisecond precision
+    print(f"Trajectory generation time: {gen_time*1000:.2f} ms")
     
     # Load Obstacles in the simulation
     sim.load_primitives(cuboids + cylinders, color=[0.6, 0.6, 0.6, 1], # gray color for obstacles
@@ -271,6 +299,7 @@ for problem_idx in problems_to_visualize:
         print("Resetting to start configuration...")
         franka.marionette(trajectory[0])
         time.sleep(1.0)  # Give time to visualize initial state
+        
         
         # Ask user if they want to continue to policy trajectory
         # input("Press Enter to continue to policy trajectory...")
